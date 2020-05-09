@@ -20,7 +20,7 @@ fun Collection<Double>.relativeStandardDeviation() = this.standardDeviation() / 
 
 fun LongArray.distSq(other: LongArray): Long {
     var dist = 0L
-    for(i in this.indices) {
+    for (i in this.indices) {
         dist += (this[i] - other[i]) * (this[i] - other[i])
     }
     return dist

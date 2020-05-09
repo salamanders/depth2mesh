@@ -57,38 +57,38 @@ fun main() {
     val fractionOfDegree = 0.2
     val everyNth = 100
     val rotations: List<Pair<Triple<Double, Double, Double>, Double>> =
-        (-1..1).map { it * fractionOfDegree }.map { xd ->
-            (-1..1).map { it * fractionOfDegree }.map { yd ->
-                (-1..1).map { it * fractionOfDegree }.map { zd ->
-                    val xform = Transform3D().apply {
-                        val xformRotX = Transform3D()
-                        val xformRotY = Transform3D()
-                        val xformRotZ = Transform3D()
+            (-1..1).map { it * fractionOfDegree }.map { xd ->
+                (-1..1).map { it * fractionOfDegree }.map { yd ->
+                    (-1..1).map { it * fractionOfDegree }.map { zd ->
+                        val xform = Transform3D().apply {
+                            val xformRotX = Transform3D()
+                            val xformRotY = Transform3D()
+                            val xformRotZ = Transform3D()
 
-                        xformRotX.rotX(xd )
-                        xformRotY.rotY(yd )
-                        xformRotZ.rotZ(zd )
+                            xformRotX.rotX(xd)
+                            xformRotY.rotY(yd)
+                            xformRotZ.rotZ(zd)
 
-                        this.mul(xformRotX)
-                        this.mul(xformRotY)
-                        this.mul(xformRotZ)
+                            this.mul(xformRotX)
+                            this.mul(xformRotY)
+                            this.mul(xformRotZ)
+                        }
+
+
+                        var secondDistRot = 0.0
+                        val secondTreeRot = pointCloudToTransformedTree(secondCloud, xform)
+                        baselineTree.queryExtent()
+                                .asSequence()
+                                .chunked(everyNth)
+                                .map { it.first() }
+                                .forEach { coordinates ->
+                                    secondDistRot += coordinates.distSq(secondTreeRot.nearestNeighbour(1, *coordinates).next()!!)
+                                }
+                        println("rot: $xd,$yd,$zd  = $secondDistRot")
+                        Pair(Triple(xd, yd, zd), secondDistRot)
                     }
-
-
-                    var secondDistRot = 0.0
-                    val secondTreeRot = pointCloudToTransformedTree(secondCloud, xform)
-                    baselineTree.queryExtent()
-                        .asSequence()
-                        .chunked(everyNth)
-                        .map {it.first()}
-                        .forEach { coordinates ->
-                        secondDistRot += coordinates.distSq(secondTreeRot.nearestNeighbour(1, *coordinates).next()!!)
-                    }
-                    println("rot: $xd,$yd,$zd  = $secondDistRot")
-                    Pair(Triple(xd, yd, zd), secondDistRot)
-                }
-            }.flatten()
-        }.flatten().sortedBy { it.second }
+                }.flatten()
+            }.flatten().sortedBy { it.second }
 
     val (bestTransform, bestDistance) = rotations.first()
     println("Best Rotation: ${bestTransform.first},${bestTransform.second},${bestTransform.third}  dist:$bestDistance")
