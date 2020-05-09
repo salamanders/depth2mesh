@@ -209,3 +209,6 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.gitignore.io/api/osx,java,linux,macos,kotlin,windows,intellij
+/image01.ply
+/image01.stl
+/depth2mesh.iml
