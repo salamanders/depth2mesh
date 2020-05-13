@@ -1,5 +1,6 @@
 package info.benjaminhill.depth2mesh
 
+import ch.ethz.globis.phtree.PhTreeF
 import info.benjaminhill.depth2mesh.ProcrustesFit.Companion.prettyPrint
 import info.benjaminhill.depth2mesh.ProcrustesFit.Companion.rnd
 import org.apache.commons.math3.linear.ArrayRealVector
@@ -21,13 +22,11 @@ fun main() {
     val allPairs = tree0.queryExtent()
         .asSequence()
         .chunked(everyNth).map { it.first() }
-        .map { pt0 -> Pair(pt0, tree1.nearestNeighbour(1, *pt0).next()!!) }
-        .toList()
+        .map { pt0 -> pt0 to tree1.nearestNeighbour(1, *pt0).next()!! }
+        .toMap()
 
     println("Ready with ${allPairs.size} point pair, running Procrustes Fit")
-    val cloudP = PointCloud(allPairs.map { ArrayRealVector(it.first) })
-    val cloudQ = PointCloud(allPairs.map { ArrayRealVector(it.second) })
-    val pf = ProcrustesFit(cloudP, cloudQ)
+    val pf = ProcrustesFit(allPairs)
 
     println("Success!")
     println("estimated alpha: ${acos(pf.orthogonalRotation.getEntry(0, 0)).rnd()}") // What is this?
@@ -38,3 +37,18 @@ fun main() {
     println("euclidean fitting error: ${pf.getEuclideanError().rnd()}")
 }
 
+// Helpers (good for tests as well)
+
+fun arraysToProcrustes(l0: List<DoubleArray>, l1: List<DoubleArray>): ProcrustesFit = pointCloudsToProcrustes(
+    PointCloud(l0.map { ArrayRealVector(it) }),
+    PointCloud(l1.map { ArrayRealVector(it) })
+)
+
+fun pointCloudsToProcrustes(pc0: PointCloud, pc1: PointCloud): ProcrustesFit =
+    treesToProcrustes(pc0.toTree(), pc1.toTree())
+
+fun treesToProcrustes(tree0: PhTreeF<DoubleArray>, tree1: PhTreeF<DoubleArray>): ProcrustesFit =
+    ProcrustesFit(tree0.queryExtent()
+        .asSequence()
+        .map { pt0 -> pt0 to tree1.nearestNeighbour(1, *pt0).next()!! }
+        .toMap())
