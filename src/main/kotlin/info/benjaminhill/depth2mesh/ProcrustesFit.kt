@@ -6,12 +6,14 @@ import java.math.RoundingMode
 import kotlin.math.sqrt
 
 /**
+ * Find the best rotation/translation/scale between two point clouds.
+ * The dimensionality of the point cloud is determined by the RealVectors in it.  They would mostly be 2D or 3D.
  * From https://github.com/imagingbook/imagingbook-common/blob/master/src/main/java/imagingbook/pub/geometry/fitting/ProcrustesFit.java
  *
  * Always allows translation, scaling, and rotation
  *
- * @param cloudP Array<RealVector> points that correlate 1:1 with Q
- * @param cloudQ Array<RealVector> points that correlate 1:1 with P
+ * @param cloudP list of points that correlate 1:1 with Q, all with the same dimensionality
+ * @param cloudQ list of points that correlate 1:1 with P, all with the same dimensionality
  */
 class ProcrustesFit(
     private val cloudP: PointCloud,
@@ -44,17 +46,17 @@ class ProcrustesFit(
         val vQ = cloudQ.toDataMatrix(meanY)
 
         MatrixUtils.checkAdditionCompatible(vP, vQ) // P, Q of same dimensions
-        val qPt = vQ.multiply(vP.transpose())
+        val qPt = vQ.multiply(vP.transpose()) // TODO: What is qPt?
         val svd = SingularValueDecomposition(qPt)
 
         // Make sure you don't have strange reflections
-        val d: Double = if (svd.rank >= 3) qPt.det() else svd.u.det() * svd.v.det()
+        val d: Double = if (svd.rank >= 3) qPt.det() else svd.u.det() * svd.v.det() // TODO: Is rank 3 correct?  Or should it be based on the dimensions?
         val identityMatrix = MatrixUtils.createRealIdentityMatrix(dimension)
         if (d < 0) {
-            identityMatrix.setEntry(1, 1, -1.0) // TODO: Does this work in 3D?
+            identityMatrix.setEntry(1, 1, -1.0) // TODO: this is from 2D, same values in 3D?
         }
 
-        val normP = vP.frobeniusNorm
+        val normP = vP.frobeniusNorm // Uh...
         val normQ = vQ.frobeniusNorm
 
         orthogonalRotation = svd.u.multiply(identityMatrix).multiply(svd.v.transpose())
@@ -66,9 +68,9 @@ class ProcrustesFit(
 
         // make the transformation matrix A
         val cR = orthogonalRotation.scalarMultiply(scale)
-        transformation = MatrixUtils.createRealMatrix(dimension, 3) // Why 3?
+        transformation = MatrixUtils.createRealMatrix(dimension, 3) // Why 3?  Same 3 as before?
         transformation.setSubMatrix(cR.data, 0, 0)
-        transformation.setColumnVector(2, translation) // Why "2"?
+        transformation.setColumnVector(2, translation) // Why 2?
 
         err = sqrt(normQ.sqr() - (svd.s.multiply(identityMatrix).trace / normP).sqr())
     }
