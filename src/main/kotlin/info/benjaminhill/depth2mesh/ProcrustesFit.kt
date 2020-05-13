@@ -3,6 +3,7 @@ package info.benjaminhill.depth2mesh
 import org.apache.commons.math3.linear.*
 import java.math.BigDecimal
 import java.math.RoundingMode
+import kotlin.math.acos
 import kotlin.math.sqrt
 
 /**
@@ -25,6 +26,14 @@ class ProcrustesFit(
     val scale: Double
     val transformation: RealMatrix
     val err: Double // fitting error
+
+    constructor(pairs: Map<DoubleArray, DoubleArray>) : this(
+        pairs.map { ArrayRealVector(it.key) },
+        pairs.map { ArrayRealVector(it.value) })
+
+    constructor(pairs: List<Pair<RealVector, RealVector>>) : this(pairs.map { it.first }, pairs.map { it.second })
+    constructor(pointsP: List<RealVector>, pointsQ: List<RealVector>) : this(PointCloud(pointsP), PointCloud(pointsQ))
+
 
     init {
         require(cloudP.size >= 4) { "Requires at least 4 points (found ${cloudP.size})." }
@@ -50,13 +59,14 @@ class ProcrustesFit(
         val svd = SingularValueDecomposition(qPt)
 
         // Make sure you don't have strange reflections
-        val d: Double = if (svd.rank >= 3) qPt.det() else svd.u.det() * svd.v.det() // TODO: Is rank 3 correct?  Or should it be based on the dimensions?
+        val d: Double =
+            if (svd.rank >= 3) qPt.det() else svd.u.det() * svd.v.det() // TODO: Is rank 3 correct?  Or should it be based on the dimensions?
         val identityMatrix = MatrixUtils.createRealIdentityMatrix(dimension)
         if (d < 0) {
             identityMatrix.setEntry(1, 1, -1.0) // TODO: this is from 2D, same values in 3D?
         }
 
-        val normP = vP.frobeniusNorm // Uh...
+        val normP = vP.frobeniusNorm // Uh... No idea!
         val normQ = vQ.frobeniusNorm
 
         orthogonalRotation = svd.u.multiply(identityMatrix).multiply(svd.v.transpose())
@@ -72,7 +82,9 @@ class ProcrustesFit(
         transformation.setSubMatrix(cR.data, 0, 0)
         transformation.setColumnVector(2, translation) // Why 2?
 
-        err = sqrt(normQ.sqr() - (svd.s.multiply(identityMatrix).trace / normP).sqr())
+        err = (sqrt(normQ.sqr() - (svd.s.multiply(identityMatrix).trace / normP).sqr())).let {
+            if (it.isFinite()) it else 0.0
+        }
     }
 
     /** Slow version to compare with err */
@@ -89,11 +101,20 @@ class ProcrustesFit(
         return sqrt(errSum)
     }
 
+    override fun toString(): String = StringBuilder().apply {
+        append("estimated alpha: ${acos(orthogonalRotation.getEntry(0, 0)).rnd()}\n") // What is this?
+        append("estimated rotation:${orthogonalRotation.data.prettyPrint()}\n")
+        append("estimated translation: $translation\n")
+        append("estimated scale: ${scale.rnd()}\n")
+        append("transformation: ${transformation.data.prettyPrint()}\n")
+        append("RMS fitting error: $err, euclidean fitting error: ${getEuclideanError().rnd()}")
+    }.toString()
+
     companion object {
         fun RealMatrix.det() = LUDecomposition(this).determinant
         fun Double.sqr() = this * this
-        fun Double.rnd(digits:Int = 4) = BigDecimal(this).setScale(digits, RoundingMode.HALF_EVEN).toDouble()
-        fun Array<DoubleArray>.prettyPrint() = joinToString("\n") { row ->
+        fun Double.rnd(digits: Int = 4) = BigDecimal(this).setScale(digits, RoundingMode.HALF_EVEN).toDouble()
+        fun Array<DoubleArray>.prettyPrint() = "\n  " + joinToString("\n  ") { row ->
             row.joinToString(" ") { it.rnd().toString() }
         }
     }

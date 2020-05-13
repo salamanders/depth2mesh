@@ -11,13 +11,15 @@ import org.apache.commons.math3.linear.RealVector
  * Please don't go adding more points later.
  */
 class PointCloud(vecs: Collection<RealVector>) : ArrayList<RealVector>(vecs) {
+    constructor(vararg vecs: RealVector) : this(vecs.asList())
+
     private val dimension: Int
 
     init {
         require(isNotEmpty()) { "No empty PointClouds" }
         dimension = first().dimension
-        for(vec in this) {
-            require(vec.dimension==dimension) { "All vector dimensions must be the same within a point cloud." }
+        for (vec in this) {
+            require(vec.dimension == dimension) { "All vector dimensions must be the same within a point cloud." }
         }
     }
 
