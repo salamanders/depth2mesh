@@ -47,22 +47,12 @@
             <version>1.2.1</version>
         </dependency>
 
-        <!--
+        <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-math3 -->
         <dependency>
-            <groupId>info.benjaminhill.geometry</groupId>
-            <artifactId>geometry</artifactId>
-            <version>${project.version}</version>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-math3</artifactId>
+            <version>3.6.1</version>
         </dependency>
-        -->
-
-        <!-- https://mvnrepository.com/artifact/org.scijava/vecmath -->
-        <!--
-        <dependency>
-            <groupId>org.scijava</groupId>
-            <artifactId>vecmath</artifactId>
-            <version>1.6.0-scijava-2</version>
-        </dependency>
-        -->
 
         <!-- https://mvnrepository.com/artifact/org.scijava/j3dcore -->
         <dependency>
@@ -84,8 +74,6 @@
             <artifactId>guava</artifactId>
             <version>29.0-jre</version>
         </dependency>
-
-
 
     </dependencies>
 
