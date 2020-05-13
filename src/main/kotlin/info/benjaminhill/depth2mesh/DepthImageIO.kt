@@ -2,11 +2,18 @@ package info.benjaminhill.depth2mesh
 
 import com.google.common.collect.BiMap
 import com.google.common.collect.HashBiMap
-import org.scijava.vecmath.Point3d
+import org.apache.commons.math3.linear.ArrayRealVector
+import org.nield.kotlinstatistics.standardDeviation
+import org.scijava.vecmath.Vector3d
 import java.awt.Color
+import java.awt.image.BufferedImage
 import java.io.File
 import java.nio.charset.StandardCharsets
 import javax.imageio.ImageIO
+
+typealias Facet = Triple<Vector3d, Vector3d, Vector3d>
+
+fun Collection<Double>.relativeStandardDeviation() = this.standardDeviation() / this.average()
 
 fun main() {
     val face = ImageIO.read(File("DATA/faces/image_1588368657814.png"))
@@ -34,7 +41,7 @@ fun main() {
     for (x in 0 until face.width - 1) {
         pixel@ for (y in 0 until face.height - 1) {
             countAll++
-            val quad = mutableListOf<Point3d>()
+            val quad = mutableListOf<Vector3d>()
 
             for (py in y..y + 1) {
                 for (px in x..x + 1) {
@@ -47,7 +54,7 @@ fun main() {
                         countFarZ++
                         continue@pixel
                     }
-                    quad.add(Point3d(px.toDouble(), py.toDouble(), (-zDist[px][py]).toDouble()))
+                    quad.add(Vector3d(px.toDouble(), py.toDouble(), (-zDist[px][py]).toDouble()))
                 }
             }
             // Quad will always be 4 long
@@ -62,10 +69,10 @@ fun main() {
     }
 
     println(
-            "${countBadConf.toDouble() / countAll} bad conf, " +
-                    "${countFarZ.toDouble() / countAll} far z, " +
-                    "${countBadTri.toDouble() / countAll} bad tri," +
-                    "$countAll written."
+        "${countBadConf.toDouble() / countAll} bad conf, " +
+                "${countFarZ.toDouble() / countAll} far z, " +
+                "${countBadTri.toDouble() / countAll} bad tri," +
+                "$countAll written."
     )
 
     mesh.saveToPly(File("image01.ply"))
@@ -80,7 +87,7 @@ fun Collection<Facet>.saveToPly(file: File) {
         pw.println("comment Depth Map from smartphone")
 
         // Unique
-        val point2index: BiMap<Point3d, Int> = HashBiMap.create()
+        val point2index: BiMap<Vector3d, Int> = HashBiMap.create()
         this.forEach { (a, b, c) ->
             listOf(a, b, c).forEach { point ->
                 point2index.getOrPut(point) {
@@ -138,4 +145,26 @@ fun Collection<Facet>.saveToStl(file: File, name: String = "custom") {
         pw.println("endsolid $name")
     }
     println("Done writing stl.")
+}
+
+/**
+ * Hacky depth map in a PNG - distance=red*256+green, confidence=blue
+ */
+internal fun BufferedImage.toPointCloud() = PointCloud(mapEach { x, y ->
+    val rgb = Color(getRGB(x, y))
+    val dist = (rgb.red * 256) + rgb.green
+    val confidence = rgb.blue / 256.0
+    if (dist < 1_000 && confidence > 0.3) {
+        ArrayRealVector(doubleArrayOf(x.toDouble(), y.toDouble(), dist.toDouble()))
+    } else {
+        null
+    }
+}.flatten().filterNotNull())
+
+
+/** Helper to "do stuff" to each pixel */
+inline fun <reified T> BufferedImage.mapEach(fn: (x: Int, y: Int) -> T) = Array(this.width) { x ->
+    Array(this.height) { y ->
+        fn(x, y)
+    }
 }
