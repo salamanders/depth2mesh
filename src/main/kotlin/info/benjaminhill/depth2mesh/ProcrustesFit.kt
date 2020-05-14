@@ -7,7 +7,7 @@ import kotlin.math.acos
 import kotlin.math.sqrt
 
 /**
- * Find the best rotation/translation/scale between two point clouds.
+ * Find the best rotation/translation/scale to change cloudP into cloudQ
  * The dimensionality of the point cloud is determined by the RealVectors in it.  They would mostly be 2D or 3D.
  * From https://github.com/imagingbook/imagingbook-common/blob/master/src/main/java/imagingbook/pub/geometry/fitting/ProcrustesFit.java
  *
@@ -18,7 +18,8 @@ import kotlin.math.sqrt
  */
 class ProcrustesFit(
     private val cloudP: PointCloud,
-    private val cloudQ: PointCloud
+    private val cloudQ: PointCloud,
+    allowScaling: Boolean = false
 ) {
     private val dimension: Int
     val orthogonalRotation: RealMatrix
@@ -27,25 +28,14 @@ class ProcrustesFit(
     val transformation: RealMatrix
     val err: Double // fitting error
 
-    constructor(pairs: Map<DoubleArray, DoubleArray>) : this(
-        pairs.map { ArrayRealVector(it.key) },
-        pairs.map { ArrayRealVector(it.value) })
-
-    constructor(pairs: List<Pair<RealVector, RealVector>>) : this(pairs.map { it.first }, pairs.map { it.second })
-    constructor(pointsP: List<RealVector>, pointsQ: List<RealVector>) : this(PointCloud(pointsP), PointCloud(pointsQ))
-
+    constructor(pointMap: Map<Point, Point>) : this(PointCloud(pointMap.keys), PointCloud(pointMap.values))
 
     init {
         require(cloudP.size >= 4) { "Requires at least 4 points (found ${cloudP.size})." }
         require(cloudP.size == cloudQ.size) { "Both point clouds must be the same size." }
 
         dimension = cloudP.first().dimension
-        for (v in cloudP) {
-            require(v.dimension == dimension) { "Found a point in cloudP with the wrong dimension." }
-        }
-        for (v in cloudQ) {
-            require(v.dimension == dimension) { "Found a point in cloudQ with the wrong dimension." }
-        }
+        require(dimension == cloudQ.first().dimension) { "Point cloud's points must have the same dimensionality " }
 
         // always allow translation
         val meanP = cloudP.getMeanVec()
@@ -70,7 +60,7 @@ class ProcrustesFit(
         val normQ = vQ.frobeniusNorm
 
         orthogonalRotation = svd.u.multiply(identityMatrix).multiply(svd.v.transpose())
-        scale = svd.s.multiply(identityMatrix).trace / normP.sqr()
+        scale = if (allowScaling) svd.s.multiply(identityMatrix).trace / normP.sqr() else 1.0
 
         val ma = MatrixUtils.createRealVector(meanP.toArray())
         val mb = MatrixUtils.createRealVector(meanY.toArray())
@@ -92,13 +82,22 @@ class ProcrustesFit(
         val sR: RealMatrix = orthogonalRotation.scalarMultiply(scale)
         var errSum = 0.0
         for (i in cloudP.indices) {
-            val p: RealVector = ArrayRealVector(cloudP[i].toArray())
-            val q: RealVector = ArrayRealVector(cloudQ[i].toArray())
-            val pp = sR.operate(p).add(translation)
-            val e = pp.subtract(q).norm
+            val p: RealVector = cloudP[i]
+            val q: RealVector = cloudQ[i]
+            val pTransformed = sR.operate(p).add(translation)
+            val e = pTransformed.subtract(q).norm
             errSum += e.sqr()
         }
         return sqrt(errSum)
+    }
+
+
+    /** Get the cloud P, transformed as close as possible to Q */
+    fun getPTransformed(): PointCloud {
+        val sR: RealMatrix = orthogonalRotation.scalarMultiply(scale)
+        return PointCloud(cloudP.map { p ->
+            sR.operate(p).add(translation) as Point
+        })
     }
 
     override fun toString(): String = StringBuilder().apply {
@@ -107,7 +106,7 @@ class ProcrustesFit(
         append("estimated translation: $translation\n")
         append("estimated scale: ${scale.rnd()}\n")
         append("transformation: ${transformation.data.prettyPrint()}\n")
-        append("RMS fitting error: $err, euclidean fitting error: ${getEuclideanError().rnd()}")
+        append("RMS fitting error: ${err.rnd()}, euclidean fitting error: ${getEuclideanError().rnd()}")
     }.toString()
 
     companion object {

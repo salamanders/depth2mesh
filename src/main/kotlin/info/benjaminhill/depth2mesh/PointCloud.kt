@@ -6,12 +6,14 @@ import org.apache.commons.math3.linear.MatrixUtils
 import org.apache.commons.math3.linear.RealMatrix
 import org.apache.commons.math3.linear.RealVector
 
+
 /**
  * A collection of some number of vectors, all with the same dimensionality.
  * Please don't go adding more points later.
  */
-class PointCloud(vecs: Collection<RealVector>) : ArrayList<RealVector>(vecs) {
-    constructor(vararg vecs: RealVector) : this(vecs.asList())
+class PointCloud(allVectors: Collection<Point>) : ArrayList<Point>(allVectors) {
+
+    constructor(allDoubleArrays: List<DoubleArray>) : this(allDoubleArrays.map { Point(*it) })
 
     private val dimension: Int
 
@@ -37,8 +39,19 @@ class PointCloud(vecs: Collection<RealVector>) : ArrayList<RealVector>(vecs) {
      * Batch transform to a PhTreeF.
      * TBD if there are faster ways to batch-transform the points, or ways to batch-add to the tree.
      */
-    fun toTree(): PhTreeF<DoubleArray> = PhTreeF.create<DoubleArray>(dimension).also { tree ->
+    private fun toTree(): PhTreeF<DoubleArray> = PhTreeF.create<DoubleArray>(dimension).also { tree ->
         map { it.toArray() }.forEach { tree.put(it, it) }
+    }
+
+    /**
+     * Map of each point in this cloud to nearest neighbor in the other cloud
+     */
+    fun getNearestNeighbors(other: PointCloud): Map<Point, Point> {
+        val otherTree = other.toTree()
+        return this.toTree().queryExtent().asSequence()
+            .map { pt0 -> pt0 to otherTree.nearestNeighbour(1, *pt0).next()!! }
+            .map { Point(it.first) to Point(it.second) }
+            .toMap()
     }
 
     /**
