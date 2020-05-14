@@ -8,10 +8,13 @@ import kotlin.math.sqrt
 
 /**
  * Find the best rotation/translation/scale to change cloudP into cloudQ
- * The dimensionality of the point cloud is determined by the RealVectors in it.  They would mostly be 2D or 3D.
+ *
+ * The dimensionality of the point cloud is determined by the RealVectors in it.
+ * (They would mostly be 2D or 3D.)
  * From https://github.com/imagingbook/imagingbook-common/blob/master/src/main/java/imagingbook/pub/geometry/fitting/ProcrustesFit.java
  *
- * Always allows translation, scaling, and rotation
+ * Always allows translation and rotation
+ * Flag controls scaling (so you can first try without scaling)
  *
  * @param cloudP list of points that correlate 1:1 with Q, all with the same dimensionality
  * @param cloudQ list of points that correlate 1:1 with P, all with the same dimensionality
@@ -28,7 +31,14 @@ class ProcrustesFit(
     val transformation: RealMatrix
     val err: Double // fitting error
 
-    constructor(pointMap: Map<Point, Point>) : this(PointCloud(pointMap.keys), PointCloud(pointMap.values))
+    constructor(
+        pointMap: Map<Point, Point>,
+        allowScaling: Boolean = false
+    ) : this(
+        PointCloud(pointMap.keys),
+        PointCloud(pointMap.values),
+        allowScaling
+    )
 
     init {
         require(cloudP.size >= 4) { "Requires at least 4 points (found ${cloudP.size})." }
@@ -112,7 +122,12 @@ class ProcrustesFit(
     companion object {
         fun RealMatrix.det() = LUDecomposition(this).determinant
         fun Double.sqr() = this * this
-        fun Double.rnd(digits: Int = 4) = BigDecimal(this).setScale(digits, RoundingMode.HALF_EVEN).toDouble()
+        fun Double.rnd(digits: Int = 4): Double = when {
+            this.isNaN() -> Double.NaN
+            this.isInfinite() -> Double.POSITIVE_INFINITY
+            else -> BigDecimal(this).setScale(digits, RoundingMode.HALF_EVEN).toDouble()
+        }
+
         fun Array<DoubleArray>.prettyPrint() = "\n  " + joinToString("\n  ") { row ->
             row.joinToString(" ") { it.rnd().toString() }
         }
