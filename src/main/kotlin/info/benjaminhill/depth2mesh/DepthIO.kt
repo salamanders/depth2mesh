@@ -9,49 +9,44 @@ import java.nio.charset.StandardCharsets
 import javax.imageio.ImageIO
 
 
-
-fun main() {
-    val faceFile = File("DATA/faces/")
-        .walk()
-        .filter { it.isFile && it.canRead() && "png" == it.extension.toLowerCase() }
-        .sortedBy { it.nameWithoutExtension }
-        .first()
-
-    val image = ImageIO.read(faceFile)
-    val imageWidth = image.width
-    val imageHeight = image.height
-    val mesh = mutableListOf<Facet>()
-
-    for (y in 0 until imageHeight - 1) {
-        for (x in 0 until imageWidth - 1) {
-            // x0y0, x0y1, x1y0, x1y1
-            val distances: List<Point> = (0..1).map { dy ->
-                (0..1).map { dx ->
-                    val (dist, conf) = image.getDistanceConfidence(x + dx, y + dy)
-                    if (dist < 500 && conf > 0.5) {
-                        Point(x + dx, y + dy, dist)
-                    } else {
-                        null
-                    }
-                }
-            }.flatten().filterNotNull()
-
-            if (distances.size == 4) {
-                mesh.add(Facet(distances[0], distances[3], distances[1]))
-                mesh.add(Facet(distances[0], distances[2], distances[3]))
-            }
-        }
+fun getAllClouds(
+    maxDistance: Int = 300,
+    minConfidence: Double = 0.8,
+    zStretch: Double = 1.8,
+    decimate: Double = 2.0
+) = File("DATA/faces/")
+    .walk()
+    .filter { it.isFile && it.canRead() && "png" == it.extension.toLowerCase() }
+    .sortedBy { it.nameWithoutExtension }
+    .map {
+        ImageIO.read(it).toPointCloud(maxDistance, minConfidence)
     }
-    mesh.saveToPly(File("image01.ply"))
-    mesh.saveToStl(File("image01.stl"))
-}
+    .onEach { it.multiplyAllToSelf(Point(1.0, 1.0, zStretch)) } // Streeetch Z
+    .map { it.decimate(decimate) }
+    .toList().also {
+        println("Loaded images into ${it.size} PointClouds, and decimated.")
+    }
 
+/**
+ * Hacky depth map in a PNG - distance=red*256+green, confidence=blue
+ */
 internal fun BufferedImage.getDistanceConfidence(x: Int, y: Int): Pair<Int, Double> {
     val rgb = Color(getRGB(x, y))
     val dist = (rgb.red * 256) + rgb.green
     val confidence = rgb.blue / 256.0
     return Pair(dist, confidence)
 }
+
+internal fun BufferedImage.toPointCloud(maxDistance: Int = Int.MAX_VALUE, minConfidence: Double = 0.0) =
+    PointCloud(mapEach { x, y ->
+        val (distance, confidence) = this.getDistanceConfidence(x, y)
+        if (distance <= maxDistance && confidence >= minConfidence) {
+            Point(x, y, distance)
+        } else {
+            null
+        }
+    }.flatten().filterNotNull())
+
 
 fun Collection<Facet>.saveToPly(file: File) {
     file.printWriter(StandardCharsets.US_ASCII).use { pw ->
@@ -129,26 +124,10 @@ fun pointsToAsc(nameWithoutExtension: String, pc: Collection<Point>) {
     val file = File("$nameWithoutExtension.asc")
     file.printWriter().use { pw ->
         pc.forEach { vector ->
-            pw.println(vector.toArray().joinToString(" "))
+            pw.println(vector.dataRef.joinToString(" "))
         }
     }
 }
-
-/**
- * Hacky depth map in a PNG - distance=red*256+green, confidence=blue
- */
-internal fun BufferedImage.toPointCloud(maxDistance: Int = Int.MAX_VALUE, minConfidence: Double = 0.0) =
-    PointCloud(mapEach { x, y ->
-        val rgb = Color(getRGB(x, y))
-        val dist = (rgb.red * 256) + rgb.green
-        val confidence = rgb.blue / 256.0
-        if (dist <= maxDistance && confidence >= minConfidence) {
-            Point(x, y, dist)
-        } else {
-            null
-        }
-    }.flatten().filterNotNull())
-
 
 /** Helper to "do stuff" to each pixel */
 inline fun <reified T> BufferedImage.mapEach(fn: (x: Int, y: Int) -> T) = Array(this.width) { x ->

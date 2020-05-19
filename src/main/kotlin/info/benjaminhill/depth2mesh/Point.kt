@@ -22,4 +22,11 @@ val Point.y: Double
 val Point.z: Double
     get() = this.getEntry(2)
 
+fun Point.multiplyToSelf(other: Point): Point {
+    for (i in dataRef.indices) {
+        dataRef[i] *= other.dataRef[i]
+    }
+    return this
+}
+
 internal typealias Facet = Triple<Point, Point, Point>

@@ -72,8 +72,8 @@ class ProcrustesFit(
         orthogonalRotation = svd.u.multiply(identityMatrix).multiply(svd.v.transpose())
         scale = if (allowScaling) svd.s.multiply(identityMatrix).trace / normP.sqr() else 1.0
 
-        val ma = MatrixUtils.createRealVector(meanP.toArray())
-        val mb = MatrixUtils.createRealVector(meanY.toArray())
+        val ma = MatrixUtils.createRealVector(meanP.dataRef)
+        val mb = MatrixUtils.createRealVector(meanY.dataRef)
         translation = mb.subtract(orthogonalRotation.scalarMultiply(scale).operate(ma))
 
         // make the transformation matrix A

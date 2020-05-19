@@ -28,11 +28,32 @@ class PointCloud(allVectors: Collection<Point>) : ArrayList<Point>(allVectors) {
     /**
      * Center of the cloud
      */
-    fun getMeanVec(): RealVector {
+    fun getMeanVec(): Point {
         val total = fold(ArrayRealVector(dimension)) { acc, realVector ->
             return acc.add(realVector)
         }
-        return total.mapDivide(size.toDouble())
+        return total.mapDivide(size.toDouble()) as Point
+    }
+
+    /**
+     * Returns a new cloud with reduced points
+     */
+    fun decimate(minDistance: Double = 1.9): PointCloud {
+        val center = getMeanVec()
+        val result = PhTreeF.create<DoubleArray>(dimension)
+        result.put(center.dataRef, center.dataRef)
+        // Walk outwards, adding each if they aren't crowded.
+        toTree().nearestNeighbour(this.size, *center.dataRef)
+            .asSequence()
+            .forEach { potentialLoc ->
+                val potentialPoint = Point(potentialLoc)
+                val nearest = Point(result.nearestNeighbour(1, *potentialLoc).next())
+                val dist = potentialPoint.getDistance(nearest)
+                if (dist > minDistance) {
+                    result.put(potentialLoc, potentialLoc)
+                }
+            }
+        return PointCloud(result.queryExtent().asSequence().toList())
     }
 
     /**
@@ -40,7 +61,7 @@ class PointCloud(allVectors: Collection<Point>) : ArrayList<Point>(allVectors) {
      * TBD if there are faster ways to batch-transform the points, or ways to batch-add to the tree.
      */
     private fun toTree(): PhTreeF<DoubleArray> = PhTreeF.create<DoubleArray>(dimension).also { tree ->
-        map { it.toArray() }.forEach { tree.put(it, it) }
+        map { it.dataRef }.forEach { tree.put(it, it) }
     }
 
     /**
@@ -60,11 +81,17 @@ class PointCloud(allVectors: Collection<Point>) : ArrayList<Point>(allVectors) {
     fun toDataMatrix(meanX: RealVector? = null): RealMatrix = MatrixUtils.createRealMatrix(dimension, size).also { m ->
         val mean = MatrixUtils.createRealVector(meanX?.toArray())
         forEachIndexed { index, realVector ->
-            var cv = MatrixUtils.createRealVector(realVector.toArray())
+            var cv = MatrixUtils.createRealVector(realVector.dataRef)
             mean?.let {
                 cv = cv.subtract(it)
             }
             m.setColumnVector(index, cv)
+        }
+    }
+
+    fun multiplyAllToSelf(other: Point) {
+        forEach { point ->
+            point.multiplyToSelf(other)
         }
     }
 }
