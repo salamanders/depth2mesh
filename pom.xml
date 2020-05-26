@@ -41,6 +41,12 @@
             <url>https://kotlin.bintray.com/kotlinx</url>
         </repository>
 
+        <repository>
+            <id>apache</id>
+            <name>apache_snapshots</name>
+            <url>http://repository.apache.org/snapshots</url>
+        </repository>
+
     </repositories>
 
     <pluginRepositories>
@@ -102,8 +108,8 @@
         <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-math3 -->
         <dependency>
             <groupId>org.apache.commons</groupId>
-            <artifactId>commons-math3</artifactId>
-            <version>3.6.1</version>
+            <artifactId>commons-math4</artifactId>
+            <version>4.0-SNAPSHOT</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.scijava/j3dcore -->
@@ -165,6 +171,26 @@
                         <phase>test-compile</phase>
                         <goals>
                             <goal>test-compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>compile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>testCompile</id>
+                        <phase>test-compile</phase>
+                        <goals>
+                            <goal>testCompile</goal>
                         </goals>
                     </execution>
                 </executions>
