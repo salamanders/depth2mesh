@@ -1,7 +1,5 @@
 package info.benjaminhill.math
 
-import org.apache.commons.math3.ml.clustering.Clusterable
-
 /**
  * Simple linear algebra and geometry functions designed to operate on doubles[].
  * <ul>
@@ -31,7 +29,4 @@ val SimplePoint.z: Double
 val SimplePoint.dimension: Int
     get() = 3
 
-class ClusterablePoint(private val point: SimplePoint) : Clusterable {
-    override fun getPoint(): DoubleArray = point
-
-}
+fun SimplePoint.pretty(): String = "[x:$x, y:$y, z:$z]"

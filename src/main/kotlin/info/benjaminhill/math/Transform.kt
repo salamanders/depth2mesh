@@ -4,6 +4,16 @@ typealias Transform = SimpleMatrix
 
 /**
  * computes R p + t when T = |R t| and len(p) = len(t) |0 1|
+ *
+ * http://web.iitd.ac.in/~hegde/cad/lecture/L6_3dtrans.pdf
+ * a d g p
+ * b e h q
+ * c f i r
+ * l m n s
+ * pqr = Perspective transformations
+ * a:j Linear transformations – local scaling, shear, rotation / reflection
+ * lmn: Translations l, m, n along x, y, and z axis
+ * s: Overall scaling
  */
 fun Transform.transform(vec: SimpleVector): SimpleVector {
     require(isSquare())

@@ -214,3 +214,6 @@ $RECYCLE.BIN/
 /depth2mesh.iml
 /DATA/clusters/
 /DATA/allmerged_new.asc
+/DATA/allmerged.asc
+/DATA/bucketed.asc
+/DATA/cluster_cache/
