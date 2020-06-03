@@ -7,11 +7,11 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
 
-typealias SimpleCloud = List<SimplePoint>
+typealias SimpleCloud3d = List<SimplePoint3d>
 
-fun SimpleCloud.centroid(): SimplePoint {
+fun SimpleCloud3d.centroid(): SimplePoint3d {
     require(this.isNotEmpty())
-    val cent = fold(SimplePoint(dimension)) { acc, elt ->
+    val cent = fold(SimplePoint3d(dimension)) { acc, elt ->
         acc += elt
         acc
     }
@@ -19,14 +19,14 @@ fun SimpleCloud.centroid(): SimplePoint {
     return cent
 }
 
-fun SimpleCloud.toCentered(): SimpleCloud {
+fun SimpleCloud3d.toCentered(): SimpleCloud3d {
     val centroid = centroid()
     return map {
         it - centroid
     }
 }
 
-fun SimpleCloud.getRange(): Pair<SimplePoint, SimplePoint> {
+fun SimpleCloud3d.getRange(): Pair<SimplePoint3d, SimplePoint3d> {
     val min = simplePointOf(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE)
     val max = simplePointOf(Double.MIN_VALUE, Double.MIN_VALUE, Double.MIN_VALUE)
     forEach { point ->
@@ -38,38 +38,40 @@ fun SimpleCloud.getRange(): Pair<SimplePoint, SimplePoint> {
     return Pair(min, max)
 }
 
+
+
 /**
  * Batch transform to a PhTreeF.
  * TBD if there are faster ways to batch-transform the points, or ways to batch-add to the tree.
  */
-fun SimpleCloud.toTree(): PhTreeF<SimpleVector> = PhTreeF.create<SimpleVector>(dimension).also { tree ->
+fun SimpleCloud3d.toTree(): PhTreeF<SimpleVector> = PhTreeF.create<SimpleVector>(dimension).also { tree ->
     forEach { tree.put(it, it) }
 }
 
 /**
  * Map of each point in this cloud to nearest neighbor in the other cloud
  */
-fun SimpleCloud.getNearestNeighbors(other: SimpleCloud): Map<SimplePoint, SimplePoint> {
+fun SimpleCloud3d.getNearestNeighbors(other: SimpleCloud3d): Map<SimplePoint3d, SimplePoint3d> {
     val otherTree = other.toTree()
     return this.toTree().queryExtent().asSequence()
         .map { pt0 -> pt0 to otherTree.nearestNeighbour(1, *pt0).next()!! }
         .toMap()
 }
 
-val SimpleCloud.dimension: Int
+val SimpleCloud3d.dimension: Int
     get() = 3
 
 /**
  * Returns a new cloud with reduced points
  */
-fun SimpleCloud.decimate(minDistance: Double): SimpleCloud {
+fun SimpleCloud3d.decimate(minDistance: Double): SimpleCloud3d {
     val minDistanceSq = minDistance * minDistance
     val center = centroid()
-    val result = PhTreeF.create<SimplePoint>(dimension)
+    val result = PhTreeF.create<SimplePoint3d>(dimension)
     result.put(center, center)
     // Walk outwards, adding each if they aren't crowded.
-    toTree().nearestNeighbour(this.size, *center).forEach { potentialPoint: SimplePoint ->
-        val nearest: SimplePoint = result.nearestNeighbour(1, *potentialPoint).next()
+    toTree().nearestNeighbour(this.size, *center).forEach { potentialPoint: SimplePoint3d ->
+        val nearest: SimplePoint3d = result.nearestNeighbour(1, *potentialPoint).next()
         val distSq = potentialPoint.distanceSq(nearest)
         if (distSq > minDistanceSq) {
             result.put(potentialPoint, potentialPoint)
@@ -81,10 +83,10 @@ fun SimpleCloud.decimate(minDistance: Double): SimpleCloud {
 /**
  * Average small areas along Z axis.  Returns grid with holes.
  */
-fun SimpleCloud.averageAlongZ(subdivisions: Int = 100, minPerBucket: Int = 2): List<SimplePoint> {
+fun SimpleCloud3d.averageAlongZ(subdivisions: Int = 100, minPerBucket: Int = 2): List<SimplePoint3d> {
     val distances = getRange().let { it.first - it.second }
     val stepSize = max(abs(distances.x), abs(distances.y)) / subdivisions
-    val buckets = mutableMapOf<Pair<Int, Int>, MutableList<SimplePoint>>()
+    val buckets = mutableMapOf<Pair<Int, Int>, MutableList<SimplePoint3d>>()
     forEach { point ->
         buckets.getOrPut(Pair((point.x / stepSize).toInt(), (point.y / stepSize).toInt())) { mutableListOf() }
             .add(point)
@@ -96,20 +98,20 @@ fun SimpleCloud.averageAlongZ(subdivisions: Int = 100, minPerBucket: Int = 2): L
  * Hopefully import into
  * http://fabacademy.org/archives/2014/tutorials/pointcloudToSTL.html
  */
-fun SimpleCloud.saveToAsc(file: File) {
+fun SimpleCloud3d.saveToAsc(file: File) {
     file.printWriter().use { pw ->
         forEach { point ->
             pw.println(point.joinToString(" "))
         }
     }
-    println("Wrote output to file:${file.name}, points:${size}")
+    println("  Wrote output to file:${file.name}, points:${size}")
 }
 
 /**
  * Hopefully import into
  * http://fabacademy.org/archives/2014/tutorials/pointcloudToSTL.html
  */
-fun loadPointCloudFromAsc(file: File): SimpleCloud {
+fun loadPointCloudFromAsc(file: File): SimpleCloud3d {
     require(file.canRead())
     return file.readLines().map { line ->
         line.split(" ").map { it.toDouble() }.toDoubleArray()
@@ -131,7 +133,7 @@ internal fun BufferedImage.toPointCloud(
     minDepth: Int = 0,
     maxDepth: Int = Int.MAX_VALUE,
     minConfidence: Double = 0.0
-): SimpleCloud = mapEach { x, y ->
+): SimpleCloud3d = mapEach { x, y ->
     val (depth, confidence) = this.getDepthConfidence(x, y)
     if (depth in minDepth..maxDepth && confidence >= minConfidence) {
         val xf = (x - 320) / 400.0

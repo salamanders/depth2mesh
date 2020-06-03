@@ -5,9 +5,9 @@ import com.google.common.collect.HashBiMap
 import java.io.File
 import java.nio.charset.StandardCharsets
 
-typealias Facet = Triple<SimplePoint, SimplePoint, SimplePoint>
+typealias Facet = Triple<SimplePoint3d, SimplePoint3d, SimplePoint3d>
 
-fun facetOf(points: List<SimplePoint>) = Triple(points[0], points[1], points[2])
+fun facetOf(points: List<SimplePoint3d>) = Triple(points[0], points[1], points[2])
 
 fun Collection<Facet>.saveToPly(file: File) {
     file.printWriter(StandardCharsets.US_ASCII).use { pw ->
@@ -17,7 +17,7 @@ fun Collection<Facet>.saveToPly(file: File) {
         pw.println("comment Depth Map from smartphone")
 
         // Unique
-        val point2index: BiMap<SimplePoint, Int> = HashBiMap.create()
+        val point2index: BiMap<SimplePoint3d, Int> = HashBiMap.create()
         this.forEach { (a, b, c) ->
             listOf(a, b, c).forEach { point ->
                 point2index.getOrPut(point) {

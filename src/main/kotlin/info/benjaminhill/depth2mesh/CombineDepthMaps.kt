@@ -1,6 +1,6 @@
 package info.benjaminhill.depth2mesh
 
-import info.benjaminhill.math.SimplePoint
+import info.benjaminhill.math.SimplePoint3d
 import info.benjaminhill.math.averageAlongZ
 import info.benjaminhill.math.pretty
 import info.benjaminhill.math.saveToAsc
@@ -9,46 +9,53 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import java.io.File
-import kotlin.math.roundToInt
 
 
 val DATA_FOLDER = File("DATA/").also { it.mkdirs() }
+private val OUTPUT = File(DATA_FOLDER, "output").also { it.mkdirs() }
+
+private fun saveStateToFiles(clouds:List<AlignableCloud>, iteration:Int? = null) {
+    val allOrientedPoints = mutableListOf<SimplePoint3d>()
+    clouds.forEach { allOrientedPoints.addAll(it.transformedCloud3d!!) }
+    allOrientedPoints.saveToAsc(File(OUTPUT, "allmerged${iteration?.let {"_$it"}?:""}.asc"))
+    val averaged = allOrientedPoints.averageAlongZ(subdivisions = 150)
+    averaged.saveToAsc(File(OUTPUT, "bucketed${iteration?.let {"_$it"}?:""}.asc"))
+}
 
 fun main() = runBlocking(Dispatchers.IO) {
-    val clouds = AlignableCloud.loadAll()
+    OUTPUT.walk().forEach { it.delete() }
+
+    val clouds = AlignableCloud.loadAll(File("/Users/benhill/Desktop/face"))
         .toMutableList()
 
     println("loaded (${clouds.size})")
     check(clouds.isNotEmpty())
 
+    clouds.parallelStream().forEach { println("Cloud decimated size: ${it.decimatedCluster!!.size}") }
+
     // TODO: What is the best baseline?  First?  Middle?
     // TODO: Incremental merge, so you "build" up the target mesh with each cloud you add
-
-    clouds.forEach { it.decimateDist = 2.0 }
+    // clouds.forEach { it.decimateDist = 1.0 }
 
     val baselineCloud = clouds[0]
-    println("Starting alignment. (${(10 * clouds[0].distanceTo(clouds[1]) / clouds[0].size).roundToInt()})")
-    repeat(10) { iteration ->
+    baselineCloud.setCentered()
+
+    println("Starting alignment.")
+    repeat(50) { iteration ->
+        if(iteration%10==0) {
+            saveStateToFiles(clouds, iteration)
+        }
         clouds.drop(1).map { cloud ->
             async {
                 cloud.alignTo(baselineCloud)
             }
         }.awaitAll()
-        println(" $iteration (${(10 * clouds[0].distanceTo(clouds[1]) / clouds[0].size).roundToInt()})")
+        println(" $iteration")
     }
 
     println(clouds.last().transform.pretty())
+    saveStateToFiles(clouds)
 
-    val allOrientedPoints = mutableListOf<SimplePoint>()
-    clouds.forEach {
-        allOrientedPoints.addAll(it.transformedCloud!!)
-    }
-    allOrientedPoints.saveToAsc(File(DATA_FOLDER, "allmerged.asc"))
-
-    val averaged = allOrientedPoints.averageAlongZ(
-        subdivisions = 150
-    )
-    averaged.saveToAsc(File(DATA_FOLDER, "bucketed.asc"))
 
     /*
     clouds.drop(1).forEach { it.maxDepth = 250.0 }

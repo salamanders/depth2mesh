@@ -38,13 +38,11 @@ fun SimpleMatrix.swapRows(a: Int, b: Int) {
 }
 
 
-fun SimpleMatrix.transpose(): SimpleMatrix {
-    val X = simpleMatrixOf(columnDimension, rowDimension)
+fun SimpleMatrix.transpose(): SimpleMatrix = simpleMatrixOf(columnDimension, rowDimension).also { result ->
     for (i in 0 until rowDimension) {
         val row = this[i]
-        row.transposeAsColumn(X, i)
+        row.transposeAsColumn(result, i)
     }
-    return X
 }
 
 

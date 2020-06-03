@@ -11,22 +11,22 @@ package info.benjaminhill.math
  *
  **/
 
-typealias SimplePoint = SimpleVector
+typealias SimplePoint3d = SimpleVector
 
-fun simplePointOf(x: Double, y: Double, z: Double): SimplePoint = doubleArrayOf(x, y, z)
+fun simplePointOf(x: Double, y: Double, z: Double): SimplePoint3d = doubleArrayOf(x, y, z)
 
-fun simplePointOf(x: Int, y: Int, z: Int): SimplePoint = simplePointOf(x.toDouble(), y.toDouble(), z.toDouble())
+fun simplePointOf(x: Int, y: Int, z: Int): SimplePoint3d = simplePointOf(x.toDouble(), y.toDouble(), z.toDouble())
 
-val SimplePoint.x: Double
+val SimplePoint3d.x: Double
     get() = this[0]
 
-val SimplePoint.y: Double
+val SimplePoint3d.y: Double
     get() = this[1]
 
-val SimplePoint.z: Double
+val SimplePoint3d.z: Double
     get() = this[2]
 
-val SimplePoint.dimension: Int
+val SimplePoint3d.dimension: Int
     get() = 3
 
-fun SimplePoint.pretty(): String = "[x:$x, y:$y, z:$z]"
+fun SimplePoint3d.pretty(): String = "[x:$x, y:$y, z:$z]"

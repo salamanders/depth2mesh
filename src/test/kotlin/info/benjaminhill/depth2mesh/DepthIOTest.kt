@@ -24,7 +24,7 @@ class DepthIOTest {
         for (y in 0 until imageHeight - 1) {
             for (x in 0 until imageWidth - 1) {
                 // x0y0, x0y1, x1y0, x1y1
-                val distances: List<SimplePoint> = (0..1).map { dy ->
+                val distances: List<SimplePoint3d> = (0..1).map { dy ->
                     (0..1).map { dx ->
                         val (dist, conf) = image.getDepthConfidence(x + dx, y + dy)
                         if (dist < 500 && conf > 0.5) {
