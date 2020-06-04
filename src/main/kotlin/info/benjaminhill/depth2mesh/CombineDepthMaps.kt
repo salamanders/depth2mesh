@@ -34,6 +34,7 @@ fun main() = runBlocking(Dispatchers.Default) {
         .sortedBy { it.nameWithoutExtension }
         .asFlow()
         .map { sourceFile ->
+            // STEP 1: Load sources.  (maybe images, maybe point clouds)
             val rawPointsFile = File(RAW_POINTS_FOLDER, "${sourceFile.nameWithoutExtension}.asc")
             if (!rawPointsFile.canRead()) {
                 when (sourceFile.extension.toLowerCase()) {
@@ -51,6 +52,7 @@ fun main() = runBlocking(Dispatchers.Default) {
             rawPointsFile
         }
         .map { rawPointsFile ->
+            // STEP 2: Get the biggest cluster
             val clusterFile = File(CLUSTER_FOLDER, "${rawPointsFile.nameWithoutExtension}.asc")
             if (!clusterFile.canRead()) {
                 require(rawPointsFile.canRead() && rawPointsFile.length() > 0) { "Unable to generate cluster because missing readable non-empty ${rawPointsFile.path}" }
@@ -65,9 +67,11 @@ fun main() = runBlocking(Dispatchers.Default) {
             clusterFile
         }
         .map { largestClusterFile ->
+            // STEP 3: Decimate as needed
             loadPointCloudFromAsc(largestClusterFile).decimate(decimateDist)
         }
         .map { pointCloud ->
+            // Prep for alignment
             Pair(identityMatrixOf(4), pointCloud)
         }
         .flowOn(Dispatchers.Default)
@@ -77,6 +81,7 @@ fun main() = runBlocking(Dispatchers.Default) {
 
     var improvedClouds = clouds
 
+    // STEP 5: Iterative alignment using SVD
     repeat(10) { repeatNum ->
         println("Alignment $repeatNum")
         // Start aligning to previous cloud.  clouds[0] never moves.
@@ -93,9 +98,9 @@ fun main() = runBlocking(Dispatchers.Default) {
         improvedClouds = nextResult
     }
 
+    // Step 6: Export Point Cloud
     val allPoints = mutableListOf<SimplePoint3d>()
     val allOrientedPoints = mutableListOf<SimplePoint3d>()
-
     improvedClouds.forEach { (transform, baseCloud) ->
         allPoints.addAll(baseCloud)
         allOrientedPoints.addAll(transform.transform(baseCloud))
@@ -105,6 +110,7 @@ fun main() = runBlocking(Dispatchers.Default) {
     val averaged = allOrientedPoints.averageAlongZ(subdivisions = 150)
     averaged.saveToAsc(File(OUTPUT_FOLDER, "all_merged_oriented_bucketed.asc"))
 
+    // TODO Step 7: Export STL
 }
 
 
