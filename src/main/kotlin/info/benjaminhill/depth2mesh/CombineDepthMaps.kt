@@ -26,6 +26,7 @@ fun main() = runBlocking(Dispatchers.IO) {
     OUTPUT.walk().forEach { it.delete() }
 
     val clouds = AlignableCloud.loadAll(File("/Users/benhill/Desktop/face"))
+        //.take(3)
         .toMutableList()
 
     println("loaded (${clouds.size})")

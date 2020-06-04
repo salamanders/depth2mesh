@@ -1,11 +1,18 @@
 package info.benjaminhill.math
 
+import ch.ethz.globis.phtree.PhDistanceF_L1
 import ch.ethz.globis.phtree.PhTreeF
+import com.google.common.collect.ArrayListMultimap
+import com.google.common.collect.ListMultimap
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.collectIndexed
+import kotlinx.coroutines.flow.filter
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.sqrt
 
 typealias SimpleCloud3d = List<SimplePoint3d>
 
@@ -38,7 +45,71 @@ fun SimpleCloud3d.getRange(): Pair<SimplePoint3d, SimplePoint3d> {
     return Pair(min, max)
 }
 
+/** Print the line if the lineNum is a power of 2 */
+private fun println2(lineNum: Int, log: () -> String) {
+    if (lineNum > 4096 && (lineNum and (lineNum - 1)) == 0) {
+        println(log())
+    }
+}
 
+/** RBNN http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.149.2721&rep=rep1&type=pdf */
+fun SimpleCloud3d.largestCluster(): SimpleCloud3d {
+    val gapSize = getRange().let { sqrt(it.first.distanceSq(it.second)) } / 250.0
+    println("GapSize: $gapSize")
+    val tree = toCentered().toTree()
+    // Needs to be a list of Doubles for the Map to work
+    val clusterToPoints: ListMultimap<Int, List<Double>> = ArrayListMultimap.create(size, size)
+    val pointToCluster = mutableMapOf<List<Double>, Int>()
+    tree.queryExtent().asSequence().map { it.toList() }.toList().let { allPoints->
+        clusterToPoints.putAll(0, allPoints)
+        pointToCluster.putAll(allPoints.map { it to 0 })
+    }
+    var nextClusterId = 1
+
+    val allPoints = tree.queryExtent()
+        .asSequence()
+        .map { it.toList() }
+        .toList()
+
+    allPoints
+        .asSequence() // Lazy filter out previously-classified points
+        .filter { pointToCluster[it] == 0 }
+        .forEachIndexed { index, point ->
+            // unClustered should include the current point
+            val (unClustered, clustered) = tree.rangeQuery(gapSize, PhDistanceF_L1.THIS, *point.toDoubleArray())
+                .asSequence()
+                .map { it.toList() }
+                .partition { pointToCluster[it]!! == 0 }
+
+            println2(index) { "Matching point $index (${(100*index.toDouble()/allPoints.size).toInt()}%) to a cluster, neighbors: ${unClustered.size} unclustered, ${clustered.size} clustered." }
+            clustered
+                .filter { pointToCluster[point]!! != pointToCluster[it]!! }
+                .forEach { neighborInCluster ->
+                    val sourceClusterId = pointToCluster[point]!!
+                    val destinationClusterId = pointToCluster[neighborInCluster]!!
+                    if (sourceClusterId == 0) {
+                        // Just this one lonely point
+                        clusterToPoints[sourceClusterId].remove(point)
+                        clusterToPoints[destinationClusterId].add(point)
+                        pointToCluster[point] = destinationClusterId
+                    } else {
+                        // Larger merge. Don't bring your friends, you want the merges to happen naturally
+                        pointToCluster.putAll(clusterToPoints[sourceClusterId].map { it to destinationClusterId })
+                        clusterToPoints[destinationClusterId].addAll(clusterToPoints.removeAll(sourceClusterId))
+                    }
+                }
+
+            // You never found any friends.
+            if (pointToCluster[point] == 0) {
+                val newClusterId = nextClusterId++
+                pointToCluster.putAll(unClustered.map { it to newClusterId })
+                clusterToPoints[newClusterId].addAll(unClustered)
+            }
+        }
+
+    println("Found ${clusterToPoints.keys().size} clusters, returning largest.")
+    return clusterToPoints.asMap().entries.maxBy { it.value.size }!!.value.map { it.toDoubleArray() }
+}
 
 /**
  * Batch transform to a PhTreeF.

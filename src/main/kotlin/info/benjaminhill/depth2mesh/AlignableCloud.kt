@@ -2,7 +2,6 @@ package info.benjaminhill.depth2mesh
 
 import info.benjaminhill.math.*
 import org.apache.commons.math3.ml.clustering.Clusterable
-import org.apache.commons.math3.ml.clustering.DBSCANClusterer
 import org.apache.commons.math4.linear.MatrixUtils
 import org.apache.commons.math4.linear.SingularValueDecomposition
 import java.io.File
@@ -40,12 +39,17 @@ class AlignableCloud( sourceFile: File) {
                     val rawCloud = loadPointCloudFromAsc(rawPointsFile)
                     require(rawCloud.any { it.z < maxDepth }) { "maxDepth=$maxDepth results in an empty cloud." }
                     println("  Creating clusters of ${clusterFile.name} (CPU intensive)")
+                    /*
                     val dbs =
                         DBSCANClusterer<ClusterablePoint>(1.0, 20) // Shrug.  Doesn't seem to matter much.  Slow tho.
                     val clumps = dbs.cluster(rawCloud.map { ClusterablePoint(it) }).map { it.points }
                     val biggestClump = clumps.maxBy { it.size }!!.map { it.point }
-                    println("  Found ${clumps.size} clumps. Created largest cluster file (${clusterFile.name} size:${biggestClump.size})")
-                    biggestClump.saveToAsc(clusterFile)
+                     */
+                    val largestCluster = rawCloud.largestCluster()
+                    largestCluster.saveToAsc(clusterFile)
+                    println("  Created largest cluster file (${clusterFile.name} size:${rawCloud.size} down to ${largestCluster.size})")
+                } else {
+                    println("  Loading previously rendered cluster.")
                 }
                 decimatedCluster = null
                 field = loadPointCloudFromAsc(clusterFile)

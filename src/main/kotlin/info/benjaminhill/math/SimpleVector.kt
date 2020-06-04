@@ -93,7 +93,6 @@ fun SimpleVector.timesEquals(scale: Double, i0: Int, i1: Int) {
     for (i in i0..i1) this[i] *= scale
 }
 
-
 /**
  * Insert this vector as column 'col' in matrix A. The column is
  * initially all zero. The vector should iterate through its
