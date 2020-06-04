@@ -1,6 +1,7 @@
 # depth2mesh
 
-Doesn't work yet!
+Align 3d depth scans (like from a Pixel 4 Camera) 
+into a single higher quality mesh.
 
 From the Java code in [imagingbook ProcrustesFit](https://github.com/imagingbook/imagingbook-common/blob/master/src/main/java/imagingbook/pub/geometry/fitting/ProcrustesFit.java)
 

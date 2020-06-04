@@ -1,8 +1,7 @@
 package info.benjaminhill.depth2mesh
 
-import org.junit.Test
-
 import info.benjaminhill.math.*
+import org.junit.Test
 import java.io.File
 import javax.imageio.ImageIO
 

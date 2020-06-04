@@ -1,106 +1,173 @@
 package info.benjaminhill.depth2mesh
 
-import info.benjaminhill.math.SimplePoint3d
-import info.benjaminhill.math.averageAlongZ
-import info.benjaminhill.math.pretty
-import info.benjaminhill.math.saveToAsc
+
+import info.benjaminhill.math.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import org.apache.commons.math4.linear.MatrixUtils
+import org.apache.commons.math4.linear.SingularValueDecomposition
 import java.io.File
+import javax.imageio.ImageIO
+import kotlin.math.roundToInt
 
 
-val DATA_FOLDER = File("DATA/").also { it.mkdirs() }
-private val OUTPUT = File(DATA_FOLDER, "output").also { it.mkdirs() }
+private val DATA_FOLDER = File("DATA/").also { it.mkdirs() }
+private val INPUT_FOLDER = File(DATA_FOLDER, "inputs").also { require(it.canRead()) }
+private val OUTPUT_FOLDER = File(DATA_FOLDER, "results").also { it.mkdirs() }
+private val RAW_POINTS_FOLDER = File(DATA_FOLDER, "raw_points_cache").also { it.mkdirs() }
+private val CLUSTER_FOLDER = File(DATA_FOLDER, "cluster_cache").also { it.mkdirs() }
 
-private fun saveStateToFiles(clouds:List<AlignableCloud>, iteration:Int? = null) {
+
+fun main() = runBlocking(Dispatchers.Default) {
+    // Clean up last run
+    OUTPUT_FOLDER.walk().filter { it.extension.toLowerCase() == "asc" }.forEach { it.delete() }
+
+    val decimateDist = 0.00001
+
+    val clouds = INPUT_FOLDER
+        .walk()
+        .filter { it.isFile && it.canRead() && listOf("png", "asc").contains(it.extension.toLowerCase()) }
+        .sortedBy { it.nameWithoutExtension }
+        .asFlow()
+        .map { sourceFile ->
+            val rawPointsFile = File(RAW_POINTS_FOLDER, "${sourceFile.nameWithoutExtension}.asc")
+            if (!rawPointsFile.canRead()) {
+                when (sourceFile.extension.toLowerCase()) {
+                    "png" -> {
+                        println("${sourceFile.name} image to raw point cloud ${rawPointsFile.name}")
+                        val rawCloud = ImageIO.read(sourceFile).toPointCloud()
+                        rawCloud.saveToAsc(rawPointsFile)
+                    }
+                    "asc" -> {
+                        sourceFile.copyTo(rawPointsFile, true)
+                        println("Copied file to ${rawPointsFile.path}")
+                    }
+                }
+            }
+            rawPointsFile
+        }
+        .map { rawPointsFile ->
+            val clusterFile = File(CLUSTER_FOLDER, "${rawPointsFile.nameWithoutExtension}.asc")
+            if (!clusterFile.canRead()) {
+                require(rawPointsFile.canRead() && rawPointsFile.length() > 0) { "Unable to generate cluster because missing readable non-empty ${rawPointsFile.path}" }
+                val rawCloud = loadPointCloudFromAsc(rawPointsFile)
+                println(" Creating clusters of ${clusterFile.name} (CPU intensive)")
+                val largestCluster = rawCloud.largestCluster()
+                largestCluster.saveToAsc(clusterFile)
+                println(" Created largest cluster file (${clusterFile.name} size:${rawCloud.size} down to ${largestCluster.size})")
+            } else {
+                println("Reusing previously rendered cluster.")
+            }
+            clusterFile
+        }
+        .map { largestClusterFile ->
+            loadPointCloudFromAsc(largestClusterFile).decimate(decimateDist)
+        }
+        .map { pointCloud ->
+            Pair(identityMatrixOf(4), pointCloud)
+        }
+        .flowOn(Dispatchers.Default)
+        .toList()
+
+    println("Loaded ${clouds.size} clouds.")
+
+    var improvedClouds = clouds
+
+    repeat(10) { repeatNum ->
+        println("Alignment $repeatNum")
+        // Start aligning to previous cloud.  clouds[0] never moves.
+        val nextResult = clouds.zipWithNext { (cloudTransform0, cloudOriginal0), (cloudTransform1, cloudOriginal1) ->
+            // Current best transforms
+            val cloud0 = cloudTransform0.transform(cloudOriginal0)
+            val cloud1 = cloudTransform1.transform(cloudOriginal1)
+            // Improve on the alignment
+            val neighbors = cloud1.getNearestNeighbors(cloud0)
+            val betterTransform = alignPoints3D(neighbors.keys.toMutableList(), neighbors.values.toMutableList())
+            Pair(betterTransform, cloudOriginal1)
+        }.toMutableList()
+        nextResult.add(0, clouds.first())
+        improvedClouds = nextResult
+    }
+
+    val allPoints = mutableListOf<SimplePoint3d>()
     val allOrientedPoints = mutableListOf<SimplePoint3d>()
-    clouds.forEach { allOrientedPoints.addAll(it.transformedCloud3d!!) }
-    allOrientedPoints.saveToAsc(File(OUTPUT, "allmerged${iteration?.let {"_$it"}?:""}.asc"))
+
+    improvedClouds.forEach { (transform, baseCloud) ->
+        allPoints.addAll(baseCloud)
+        allOrientedPoints.addAll(transform.transform(baseCloud))
+    }
+    allPoints.saveToAsc(File(OUTPUT_FOLDER, "all_merged.asc"))
+    allOrientedPoints.saveToAsc(File(OUTPUT_FOLDER, "all_merged_oriented.asc"))
     val averaged = allOrientedPoints.averageAlongZ(subdivisions = 150)
-    averaged.saveToAsc(File(OUTPUT, "bucketed${iteration?.let {"_$it"}?:""}.asc"))
+    averaged.saveToAsc(File(OUTPUT_FOLDER, "all_merged_oriented_bucketed.asc"))
+
 }
 
-fun main() = runBlocking(Dispatchers.IO) {
-    OUTPUT.walk().forEach { it.delete() }
 
-    val clouds = AlignableCloud.loadAll(File("/Users/benhill/Desktop/face"))
-        //.take(3)
-        .toMutableList()
+/**
+ * returns T, an n+1 by n+1 homogeneous transform points of dimension n
+ * from list pointsA to list pointsB using method described in
+ * "Least Squares Estimation of Transformation Parameters Between Two Point Patterns"
+ * by Shinji Umeyana
+ *
+ * Algorithm overiew:
+ *   a. Compute centroids of both lists, and center pointsA, pointsB at origin
+ *   b. compute M\[n]\[n] = \Sum b_i * a_i^t
+ *   c. given M = UDV^t via singular value decomposition, compute rotation
+ *      via R = USV^t where S = diag(1,1 .. 1, det(U)*det(V));
+ *   d. result computed by compounding differences in centroid and rotation matrix
+ */
 
-    println("loaded (${clouds.size})")
-    check(clouds.isNotEmpty())
+private fun alignPoints3D(
+    pointsA: SimpleCloud3d,
+    pointsB: SimpleCloud3d
+): Transform {
+    require(pointsA.size == pointsB.size)
+    require(pointsA.isNotEmpty())
 
-    clouds.parallelStream().forEach { println("Cloud decimated size: ${it.decimatedCluster!!.size}") }
+    val cloudSize = pointsA.size
+    val dimensions: Int = pointsA[0].size
+    require(dimensions in 2..3) { "Dimension out of range: $dimensions" }
 
-    // TODO: What is the best baseline?  First?  Middle?
-    // TODO: Incremental merge, so you "build" up the target mesh with each cloud you add
-    // clouds.forEach { it.decimateDist = 1.0 }
+    val aCent = pointsA.centroid()
+    val bCent = pointsB.centroid()
 
-    val baselineCloud = clouds[0]
-    baselineCloud.setCentered()
+    // Now compute M = \Sig (x'_b) (x'_a)^t
+    val M = squareMatrixOf(dimensions)
 
-    println("Starting alignment.")
-    repeat(50) { iteration ->
-        if(iteration%10==0) {
-            saveStateToFiles(clouds, iteration)
-        }
-        clouds.drop(1).map { cloud ->
-            async {
-                cloud.alignTo(baselineCloud)
-            }
-        }.awaitAll()
-        println(" $iteration")
+    for (p in 0 until cloudSize) {
+        val xa = pointsA[p] - aCent
+        val xb = pointsB[p] - bCent
+        for (i in 0 until dimensions)
+            for (j in 0 until dimensions)
+                M[i][j] += xb[i] * xa[j]
     }
+    // Scale by 1/n for numerical precision in next step
+    for (i in 0 until dimensions)
+        for (j in 0 until dimensions)
+            M[i][j] /= cloudSize.toDouble()
 
-    println(clouds.last().transform.pretty())
-    saveStateToFiles(clouds)
+    // compute SVD of M to get rotation
+    val svd = SingularValueDecomposition(MatrixUtils.createRealMatrix(M))
 
+    val U: SimpleMatrix = svd.u.data
+    val V: SimpleMatrix = svd.v.data
+    // compute sign, if -1, we need to swap the sign of S
+    val det = U.det() * V.det()
+    val S = identityMatrixOf(dimensions)
+    S[dimensions - 1][dimensions - 1] = det.roundToInt().toDouble() // swap sign if necessary
+    val R = matrixABCt(U, S, V)
 
-    /*
-    clouds.drop(1).forEach { it.maxDepth = 250.0 }
-    clouds.forEach { it.decimateDist = 7.0 }
-    println("Fine alignment")
-    repeat(10) { iteration ->
-        clouds.map { ch ->
-            async {
-                ch.alignTo(baselineCloud)
-            }
-        }.awaitAll()
-        println(" $iteration")
-    }
-    println(clouds.last().transform.pretty())
-
-
-
-    */
-    /*
-    val mesh = mutableListOf<Facet>()
-    averaged.forEachIndexed { rowNum, row ->
-        row.forEachIndexed { colNum, point ->
-            try {
-                listOfNotNull(point, averaged[rowNum][colNum + 1], averaged[rowNum + 1][colNum + 1]).let {
-                    if (it.size == 3) {
-                        mesh.add(facetOf(it))
-                    }
-                }
-            } catch (e: IndexOutOfBoundsException) {
-                //ignore
-            }
-            try {
-                listOfNotNull(point, averaged[rowNum + 1][colNum + 1], averaged[rowNum + 1][colNum]).let {
-                    if (it.size == 3) {
-                        mesh.add(facetOf(it))
-                    }
-                }
-            } catch (e: IndexOutOfBoundsException) {
-                //ignore
-            }
-        }
-    }
-    println("Mesh ${mesh.size}")
-    mesh.saveToStl(File(DATA_FOLDER, "mesh.stl"))
-
-     */
+    // Compute T = matrixABC(O2B, Rmm, A2O); = |R t| where t = bCent  + R*(-aCent)
+    val t = bCent + matrixAB(R, aCent * -1.0)
+    val T = squareMatrixOf(dimensions + 1)
+    for (i in 0 until dimensions) System.arraycopy(R[i], 0, T[i], 0, dimensions)
+    for (i in 0 until dimensions) T[i][dimensions] = t[i]
+    T[dimensions][dimensions] = 1.0
+    return T
 }
+

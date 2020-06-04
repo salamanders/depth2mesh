@@ -4,9 +4,8 @@ import ch.ethz.globis.phtree.PhDistanceF_L1
 import ch.ethz.globis.phtree.PhTreeF
 import com.google.common.collect.ArrayListMultimap
 import com.google.common.collect.ListMultimap
-import kotlinx.coroutines.flow.asFlow
-import kotlinx.coroutines.flow.collectIndexed
-import kotlinx.coroutines.flow.filter
+import org.apache.commons.math4.ml.clustering.Clusterable
+import org.apache.commons.math4.ml.clustering.DBSCANClusterer
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
@@ -52,15 +51,32 @@ private fun println2(lineNum: Int, log: () -> String) {
     }
 }
 
-/** RBNN http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.149.2721&rep=rep1&type=pdf */
+val SCAN_RES = 1/400.0 // Approximate "resolution" of the scan
+
 fun SimpleCloud3d.largestCluster(): SimpleCloud3d {
-    val gapSize = getRange().let { sqrt(it.first.distanceSq(it.second)) } / 250.0
+     class ClusterablePoint(private val point: SimplePoint3d) : Clusterable {
+        override fun getPoint(): DoubleArray = point
+    }
+    // Very slow
+    val gapSize = getRange().let { sqrt(it.first.distanceSq(it.second)) } / 20.0
+    val dbs = DBSCANClusterer<ClusterablePoint>(gapSize, size/100)
+    val clumps = dbs.cluster(this.map { ClusterablePoint(it) }).map { it.points }
+    check(clumps.isNotEmpty()) {"No clumps found for gapSize:$gapSize"}
+    return clumps.maxBy { it.size }!!.map { it.point }
+}
+
+
+/** RBNN http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.149.2721&rep=rep1&type=pdf */
+fun SimpleCloud3d.largestClusterRBNN(): SimpleCloud3d {
+
+    val gapSize = getRange().let { sqrt(it.first.distanceSq(it.second)) } * SCAN_RES
     println("GapSize: $gapSize")
     val tree = toCentered().toTree()
     // Needs to be a list of Doubles for the Map to work
     val clusterToPoints: ListMultimap<Int, List<Double>> = ArrayListMultimap.create(size, size)
     val pointToCluster = mutableMapOf<List<Double>, Int>()
-    tree.queryExtent().asSequence().map { it.toList() }.toList().let { allPoints->
+    tree.queryExtent().asSequence().map { it.toList() }.toList().let { allPoints ->
+        allPoints.first().hashCode()
         clusterToPoints.putAll(0, allPoints)
         pointToCluster.putAll(allPoints.map { it to 0 })
     }
@@ -81,7 +97,7 @@ fun SimpleCloud3d.largestCluster(): SimpleCloud3d {
                 .map { it.toList() }
                 .partition { pointToCluster[it]!! == 0 }
 
-            println2(index) { "Matching point $index (${(100*index.toDouble()/allPoints.size).toInt()}%) to a cluster, neighbors: ${unClustered.size} unclustered, ${clustered.size} clustered." }
+            println2(index) { "Matching point $index (${(100 * index.toDouble() / allPoints.size).toInt()}%) to a cluster, neighbors: ${unClustered.size} unclustered, ${clustered.size} clustered." }
             clustered
                 .filter { pointToCluster[point]!! != pointToCluster[it]!! }
                 .forEach { neighborInCluster ->

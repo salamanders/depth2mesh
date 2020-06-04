@@ -26,3 +26,13 @@ fun Transform.transform(vec: SimpleVector): SimpleVector {
         result[i] += this[i][vec.size]
     return result
 }
+
+fun Transform.transform(cloud: SimpleCloud3d): SimpleCloud3d = cloud.map { point ->
+    SimpleVector(point.size).also {
+        for (i in point.indices)
+            for (j in point.indices)
+                it[i] += this[i][j] * point[j]
+        for (i in point.indices)
+            it[i] += this[i][point.size]
+    }
+}.toList()
