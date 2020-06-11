@@ -13,30 +13,36 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sqrt
 
+/**
+ * Immutable list of 3D points
+ */
 typealias SimpleCloud3d = List<SimplePoint3d>
 
-fun SimpleCloud3d.centroid(): SimplePoint3d {
+fun SimpleCloud3d.getCentroid(): SimplePoint3d {
     require(this.isNotEmpty())
     val cent = fold(SimplePoint3d(dimension)) { acc, elt ->
         acc += elt
         acc
     }
-    cent *= 1.0 / size
+    cent /= size.toDouble()
     return cent
 }
 
 fun SimpleCloud3d.toCentered(): SimpleCloud3d {
-    val centroid = centroid()
+    val centroid = getCentroid()
     return map {
         it - centroid
     }
 }
 
+/**
+ * Pair<minPoint, maxPoint> enclosing all points
+ */
 fun SimpleCloud3d.getRange(): Pair<SimplePoint3d, SimplePoint3d> {
-    val min = simplePointOf(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE)
-    val max = simplePointOf(Double.MIN_VALUE, Double.MIN_VALUE, Double.MIN_VALUE)
+    val min = simplePoint3dOf(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE)
+    val max = simplePoint3dOf(Double.MIN_VALUE, Double.MIN_VALUE, Double.MIN_VALUE)
     forEach { point ->
-        for (dim in 0 until point.dimension) {
+        for (dim in 0 until dimension) {
             min[dim] = min[dim].coerceAtMost(point[dim])
             max[dim] = max[dim].coerceAtLeast(point[dim])
         }
@@ -44,31 +50,30 @@ fun SimpleCloud3d.getRange(): Pair<SimplePoint3d, SimplePoint3d> {
     return Pair(min, max)
 }
 
-/** Print the line if the lineNum is a power of 2 */
-private fun println2(lineNum: Int, log: () -> String) {
-    if (lineNum > 4096 && (lineNum and (lineNum - 1)) == 0) {
-        println(log())
-    }
-}
-
-val SCAN_RES = 1/400.0 // Approximate "resolution" of the scan
-
 fun SimpleCloud3d.largestCluster(): SimpleCloud3d {
-     class ClusterablePoint(private val point: SimplePoint3d) : Clusterable {
+    class ClusterablePoint(private val point: SimplePoint3d) : Clusterable {
         override fun getPoint(): DoubleArray = point
     }
-    // Very slow
-    val gapSize = getRange().let { sqrt(it.first.distanceSq(it.second)) } / 20.0
-    val dbs = DBSCANClusterer<ClusterablePoint>(gapSize, size/100)
+    // Very slow.  Good thing to do in parallel
+    val gapBetweenClusters = getRange().let { sqrt(it.first.distanceSq(it.second)) } / 20.0
+    val minClusterCount = size / 100
+    val dbs = DBSCANClusterer<ClusterablePoint>(gapBetweenClusters, minClusterCount)
     val clumps = dbs.cluster(this.map { ClusterablePoint(it) }).map { it.points }
-    check(clumps.isNotEmpty()) {"No clumps found for gapSize:$gapSize"}
+    check(clumps.isNotEmpty()) { "No clumps found for gapSize:$gapBetweenClusters" }
     return clumps.maxBy { it.size }!!.map { it.point }
 }
 
 
-/** RBNN http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.149.2721&rep=rep1&type=pdf */
+/**
+ *  RBNN http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.149.2721&rep=rep1&type=pdf
+ */
+@Deprecated(
+    level = DeprecationLevel.ERROR,
+    message = "Seems broken.",
+    replaceWith = ReplaceWith(expression = "SimpleCloud3d.largestCluster()")
+)
 fun SimpleCloud3d.largestClusterRBNN(): SimpleCloud3d {
-
+    val SCAN_RES = 1 / 400.0 // Approximate "resolution" of the scan
     val gapSize = getRange().let { sqrt(it.first.distanceSq(it.second)) } * SCAN_RES
     println("GapSize: $gapSize")
     val tree = toCentered().toTree()
@@ -153,7 +158,7 @@ val SimpleCloud3d.dimension: Int
  */
 fun SimpleCloud3d.decimate(minDistance: Double): SimpleCloud3d {
     val minDistanceSq = minDistance * minDistance
-    val center = centroid()
+    val center = getCentroid()
     val result = PhTreeF.create<SimplePoint3d>(dimension)
     result.put(center, center)
     // Walk outwards, adding each if they aren't crowded.
@@ -170,7 +175,7 @@ fun SimpleCloud3d.decimate(minDistance: Double): SimpleCloud3d {
 /**
  * Average small areas along Z axis.  Returns grid with holes.
  */
-fun SimpleCloud3d.averageAlongZ(subdivisions: Int = 100, minPerBucket: Int = 2): List<SimplePoint3d> {
+fun SimpleCloud3d.averageAlongZ(subdivisions: Int = 100, minPerBucket: Int = 2): Map<Pair<Int, Int>, SimplePoint3d> {
     val distances = getRange().let { it.first - it.second }
     val stepSize = max(abs(distances.x), abs(distances.y)) / subdivisions
     val buckets = mutableMapOf<Pair<Int, Int>, MutableList<SimplePoint3d>>()
@@ -178,12 +183,18 @@ fun SimpleCloud3d.averageAlongZ(subdivisions: Int = 100, minPerBucket: Int = 2):
         buckets.getOrPut(Pair((point.x / stepSize).toInt(), (point.y / stepSize).toInt())) { mutableListOf() }
             .add(point)
     }
-    return buckets.filter { it.value.size >= minPerBucket }.map { it.value.centroid() }
+    return buckets
+        .filter { it.value.size >= minPerBucket }
+        .map { it.key to it.value.getCentroid() }
+        .toMap()
+}
+
+fun SimpleCloud3d.toFacets() {
+
 }
 
 /**
- * Hopefully import into
- * http://fabacademy.org/archives/2014/tutorials/pointcloudToSTL.html
+ * Simplest possible format, can be imported into Meshlab
  */
 fun SimpleCloud3d.saveToAsc(file: File) {
     file.printWriter().use { pw ->
@@ -195,8 +206,7 @@ fun SimpleCloud3d.saveToAsc(file: File) {
 }
 
 /**
- * Hopefully import into
- * http://fabacademy.org/archives/2014/tutorials/pointcloudToSTL.html
+ * Simplest possible format, can be imported into Meshlab
  */
 fun loadPointCloudFromAsc(file: File): SimpleCloud3d {
     require(file.canRead())
@@ -225,11 +235,11 @@ internal fun BufferedImage.toPointCloud(
     if (depth in minDepth..maxDepth && confidence >= minConfidence) {
         val xf = (x - 320) / 400.0
         val yf = (y - 240) / 400.0
-        simplePointOf(xf * depth, yf * depth, depth.toDouble())
+        simplePoint3dOf(xf * depth, yf * depth, depth.toDouble())
     } else {
         null
     }
-}.flatten().filterNotNull().toMutableList()
+}.flatten().filterNotNull()
 
 
 /** Helper to "do stuff" to each pixel */
@@ -240,3 +250,9 @@ internal inline fun <reified T> BufferedImage.mapEach(fn: (x: Int, y: Int) -> T)
 }
 
 
+/** Print the line if the lineNum is a power of 2 */
+private fun println2(lineNum: Int, log: () -> String) {
+    if (lineNum > 4096 && (lineNum and (lineNum - 1)) == 0) {
+        println(log())
+    }
+}

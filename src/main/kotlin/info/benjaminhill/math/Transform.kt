@@ -16,8 +16,6 @@ typealias Transform = SimpleMatrix
  * s: Overall scaling
  */
 fun Transform.transform(vec: SimpleVector): SimpleVector {
-    require(isSquare())
-    require(vec.size + 1 == size)
     val result = SimpleVector(vec.size)
     for (i in vec.indices)
         for (j in vec.indices)
@@ -27,12 +25,18 @@ fun Transform.transform(vec: SimpleVector): SimpleVector {
     return result
 }
 
-fun Transform.transform(cloud: SimpleCloud3d): SimpleCloud3d = cloud.map { point ->
-    SimpleVector(point.size).also {
-        for (i in point.indices)
-            for (j in point.indices)
-                it[i] += this[i][j] * point[j]
-        for (i in point.indices)
-            it[i] += this[i][point.size]
+fun Transform.transform(cloud: SimpleCloud3d): SimpleCloud3d {
+    require(isSquare())
+    cloud.firstOrNull()?.let {
+        require(it.size + 1 == size)
     }
-}.toList()
+    return cloud.map { point ->
+        SimpleVector(point.size).also {
+            for (i in point.indices)
+                for (j in point.indices)
+                    it[i] += this[i][j] * point[j]
+            for (i in point.indices)
+                it[i] += this[i][point.size]
+        }
+    }.toList()
+}

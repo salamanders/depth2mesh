@@ -2,6 +2,7 @@ package info.benjaminhill.depth2mesh
 
 
 import info.benjaminhill.math.*
+import info.benjaminhill.utils.concurrentMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.flowOn
@@ -17,14 +18,16 @@ import kotlin.math.roundToInt
 
 private val DATA_FOLDER = File("DATA/").also { it.mkdirs() }
 private val INPUT_FOLDER = File(DATA_FOLDER, "inputs").also { require(it.canRead()) }
-private val OUTPUT_FOLDER = File(DATA_FOLDER, "results").also { it.mkdirs() }
+private val RESULTS_FOLDER = File(DATA_FOLDER, "results").also { it.mkdirs() }
 private val RAW_POINTS_FOLDER = File(DATA_FOLDER, "raw_points_cache").also { it.mkdirs() }
 private val CLUSTER_FOLDER = File(DATA_FOLDER, "cluster_cache").also { it.mkdirs() }
 
 
 fun main() = runBlocking(Dispatchers.Default) {
-    // Clean up last run
-    OUTPUT_FOLDER.walk().filter { it.extension.toLowerCase() == "asc" }.forEach { it.delete() }
+
+
+    println("0: Clean up from last run")
+    RESULTS_FOLDER.walk().filter { it.extension.toLowerCase() == "asc" }.forEach { it.delete() }
 
     val decimateDist = 0.00001
 
@@ -33,7 +36,7 @@ fun main() = runBlocking(Dispatchers.Default) {
         .filter { it.isFile && it.canRead() && listOf("png", "asc").contains(it.extension.toLowerCase()) }
         .sortedBy { it.nameWithoutExtension }
         .asFlow()
-        .map { sourceFile ->
+        .concurrentMap { sourceFile ->
             // STEP 1: Load sources.  (maybe images, maybe point clouds)
             val rawPointsFile = File(RAW_POINTS_FOLDER, "${sourceFile.nameWithoutExtension}.asc")
             if (!rawPointsFile.canRead()) {
@@ -51,7 +54,7 @@ fun main() = runBlocking(Dispatchers.Default) {
             }
             rawPointsFile
         }
-        .map { rawPointsFile ->
+        .concurrentMap { rawPointsFile ->
             // STEP 2: Get the biggest cluster
             val clusterFile = File(CLUSTER_FOLDER, "${rawPointsFile.nameWithoutExtension}.asc")
             if (!clusterFile.canRead()) {
@@ -66,7 +69,7 @@ fun main() = runBlocking(Dispatchers.Default) {
             }
             clusterFile
         }
-        .map { largestClusterFile ->
+        .concurrentMap { largestClusterFile ->
             // STEP 3: Decimate as needed
             loadPointCloudFromAsc(largestClusterFile).decimate(decimateDist)
         }
@@ -77,7 +80,14 @@ fun main() = runBlocking(Dispatchers.Default) {
         .flowOn(Dispatchers.Default)
         .toList()
 
-    println("Loaded ${clouds.size} clouds.")
+    println("Loaded ${clouds.size} clouds (from the initial point sets' biggest clusters)")
+
+    mutableListOf<SimplePoint3d>().also { allPoints ->
+        clouds.forEach { (transform, baseCloud) ->
+            allPoints.addAll(transform.transform(baseCloud))
+        }
+        allPoints.saveToAsc(File(RESULTS_FOLDER, "all_merged.asc"))
+    }
 
     var improvedClouds = clouds
 
@@ -99,16 +109,14 @@ fun main() = runBlocking(Dispatchers.Default) {
     }
 
     // Step 6: Export Point Cloud
-    val allPoints = mutableListOf<SimplePoint3d>()
+
     val allOrientedPoints = mutableListOf<SimplePoint3d>()
     improvedClouds.forEach { (transform, baseCloud) ->
-        allPoints.addAll(baseCloud)
         allOrientedPoints.addAll(transform.transform(baseCloud))
     }
-    allPoints.saveToAsc(File(OUTPUT_FOLDER, "all_merged.asc"))
-    allOrientedPoints.saveToAsc(File(OUTPUT_FOLDER, "all_merged_oriented.asc"))
+    allOrientedPoints.saveToAsc(File(RESULTS_FOLDER, "all_merged_oriented.asc"))
     val averaged = allOrientedPoints.averageAlongZ(subdivisions = 150)
-    averaged.saveToAsc(File(OUTPUT_FOLDER, "all_merged_oriented_bucketed.asc"))
+    averaged.values.toList().saveToAsc(File(RESULTS_FOLDER, "all_merged_oriented_bucketed.asc"))
 
     // TODO Step 7: Export STL
 }
@@ -139,8 +147,8 @@ private fun alignPoints3D(
     val dimensions: Int = pointsA[0].size
     require(dimensions in 2..3) { "Dimension out of range: $dimensions" }
 
-    val aCent = pointsA.centroid()
-    val bCent = pointsB.centroid()
+    val aCent = pointsA.getCentroid()
+    val bCent = pointsB.getCentroid()
 
     // Now compute M = \Sig (x'_b) (x'_a)^t
     val M = squareMatrixOf(dimensions)

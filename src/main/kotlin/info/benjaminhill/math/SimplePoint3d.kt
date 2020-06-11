@@ -13,9 +13,9 @@ package info.benjaminhill.math
 
 typealias SimplePoint3d = SimpleVector
 
-fun simplePointOf(x: Double, y: Double, z: Double): SimplePoint3d = doubleArrayOf(x, y, z)
+fun simplePoint3dOf(x: Double, y: Double, z: Double): SimplePoint3d = doubleArrayOf(x, y, z)
 
-fun simplePointOf(x: Int, y: Int, z: Int): SimplePoint3d = simplePointOf(x.toDouble(), y.toDouble(), z.toDouble())
+fun simplePoint3dOf(x: Int, y: Int, z: Int): SimplePoint3d = simplePoint3dOf(x.toDouble(), y.toDouble(), z.toDouble())
 
 val SimplePoint3d.x: Double
     get() = this[0]

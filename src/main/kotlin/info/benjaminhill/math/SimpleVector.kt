@@ -3,7 +3,9 @@ package info.benjaminhill.math
 import kotlin.random.Random
 
 /**
- * Simplest way to store a list of doubles. Good for Operators.  Supports 3d Points
+ * Extension function on a DoubleArray is the simplest way to store a list of doubles.
+ * Good for Operators.
+ * Supports 3d Points
  */
 typealias SimpleVector = DoubleArray
 
@@ -16,6 +18,12 @@ fun randomVectorOf(dim: Int, scale: Double): SimpleVector = SimpleVector(dim) {
 operator fun SimpleVector.timesAssign(scale: Double) {
     for (i in this.indices) {
         this[i] *= scale
+    }
+}
+
+operator fun SimpleVector.divAssign(divisor: Double) {
+    for (i in this.indices) {
+        this[i] /= divisor
     }
 }
 

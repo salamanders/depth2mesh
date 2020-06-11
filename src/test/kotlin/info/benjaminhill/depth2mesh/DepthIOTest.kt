@@ -27,7 +27,7 @@ class DepthIOTest {
                     (0..1).map { dx ->
                         val (dist, conf) = image.getDepthConfidence(x + dx, y + dy)
                         if (dist < 500 && conf > 0.5) {
-                            simplePointOf(x + dx, y + dy, dist * 2)
+                            simplePoint3dOf(x + dx, y + dy, dist * 2)
                         } else {
                             null
                         }

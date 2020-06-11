@@ -4,7 +4,9 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 /**
- * Rows, then column
+ * Extension function on a SimpleVector (DoubleArray) is the simplest way to store a 2D array.
+ * Good for Operators (like myMatrix[rowNum, colNum]++)
+ * Rows, then column.
  */
 typealias SimpleMatrix = Array<SimpleVector>
 
@@ -39,9 +41,9 @@ fun SimpleMatrix.swapRows(a: Int, b: Int) {
 
 
 fun SimpleMatrix.transpose(): SimpleMatrix = simpleMatrixOf(columnDimension, rowDimension).also { result ->
-    for (i in 0 until rowDimension) {
-        val row = this[i]
-        row.transposeAsColumn(result, i)
+    for (rowNum in 0 until rowDimension) {
+        val row = this[rowNum]
+        row.transposeAsColumn(result, rowNum)
     }
 }
 
@@ -50,24 +52,20 @@ fun SimpleMatrix.transpose(): SimpleMatrix = simpleMatrixOf(columnDimension, row
  * Create a new DenseVec containing a copy of the column. Changes to
  * the DenseVec do NOT affect the Matrix.
  */
-fun SimpleMatrix.copyColumn(col: Int): SimpleVector = SimpleVector(rowDimension) {
-    this[it][col]
+fun SimpleMatrix.copyColumn(sourceColNum: Int): SimpleVector = SimpleVector(rowDimension) { rowNum ->
+    this[rowNum][sourceColNum]
 }
 
-operator fun SimpleMatrix.get(r: Int, c: Int) = this[r][c]
+operator fun SimpleMatrix.get(rowNum: Int, columnNum: Int) = this[rowNum][columnNum]
 
-operator fun SimpleMatrix.set(r: Int, c: Int, value: Double) {
-    this[r][c] = value
+operator fun SimpleMatrix.set(rowNum: Int, columnNum: Int, value: Double) {
+    this[rowNum][columnNum] = value
 }
 
-fun SimpleMatrix.isSquare() = isNotEmpty() && size == this[0].size
+fun SimpleMatrix.isSquare() = isNotEmpty() && rowDimension == columnDimension
 
 /**
- * Warning: This is not a terribly efficient way to compute determinants for
- * anything other than 3x3 or 2x2
- *
- * compute determinant of small matrix. For large matrices an
- * alright method is to take product of diagonals of L and U
+ * compute determinant of small matrix.
  */
 fun SimpleMatrix.det(): Double {
     require(isSquare())
@@ -83,8 +81,7 @@ fun SimpleMatrix.det(): Double {
             for (i in indices) det *= lu.l[i, i]
             for (i in indices) det *= lu.u[i, i]
             return det
-
-             */
+            */
         }
     }
 }
@@ -102,16 +99,19 @@ fun matrixAB(
     A: SimpleMatrix,
     B: SimpleMatrix
 ): SimpleMatrix {
-    val n: Int = B[0].size
-    val `in`: Int = A[0].size
-    require(A[0].size == B.size)
+    require(A.columnDimension == B.rowDimension)
 
-    val targetX = simpleMatrixOf(A.size, n)
-    for (i in A.indices) {
-        for (j in 0 until n) {
+    val bNumCols: Int = B.columnDimension
+    val aNumCols: Int = A.columnDimension
+
+    val targetX = simpleMatrixOf(A.rowDimension, bNumCols)
+    for (aRowNum in A.indices) {
+        for (bColNum in B.indices) {
             var acc = 0.0
-            for (k in 0 until `in`) acc += A[i][k] * B[k][j]
-            targetX[i][j] = acc
+            for (aColNum in A.indices) {
+                acc += A[aRowNum][aColNum] * B[aColNum][bColNum]
+            }
+            targetX[aRowNum][bColNum] = acc
         }
     }
     return targetX
@@ -121,12 +121,14 @@ fun matrixAB(
  * X = A * B
  */
 fun matrixAB(A: SimpleMatrix, B: SimpleVector): SimpleVector {
-    require(A[0].size == B.size)
-    val targetX = SimpleVector(A.size)
-    for (i in targetX.indices) {
+    require(A.columnDimension == B.size)
+    val targetX = SimpleVector(A.rowDimension)
+    for (xRowNum in targetX.indices) {
         var acc = 0.0
-        for (k in A[0].indices) acc += A[i][k] * B[k]
-        targetX[i] = acc
+        for (aColNum in A[0].indices) {
+            acc += A[xRowNum][aColNum] * B[aColNum]
+        }
+        targetX[xRowNum] = acc
     }
     return targetX
 }
@@ -135,13 +137,15 @@ private fun matrixABt(
     A: SimpleMatrix,
     B: SimpleMatrix
 ): SimpleMatrix {
-    require(A[0].size == B[0].size)
-    val targetX = simpleMatrixOf(A.size, B.size)
-    for (i in A.indices) {
-        for (j in B.indices) {
+    require(A.columnDimension == B.columnDimension)
+    val targetX = simpleMatrixOf(A.rowDimension, B.rowDimension)
+    for (aRowNum in A.indices) {
+        for (bRowNum in B.indices) {
             var acc = 0.0
-            for (k in A[i].indices) acc += A[i][k] * B[j][k]
-            targetX[i][j] = acc
+            for (aColNum in A[aRowNum].indices) {
+                acc += A[aRowNum][aColNum] * B[bRowNum][aColNum]
+            }
+            targetX[aRowNum][bRowNum] = acc
         }
     }
     return targetX
