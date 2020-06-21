@@ -1,187 +1,161 @@
 package info.benjaminhill.depth2mesh
 
 
-import info.benjaminhill.math.*
+import info.benjaminhill.depth2mesh.OrientedCloud.Companion.loadCloudFromAsc
+import info.benjaminhill.stats.pso.OptimizableFunction
+import info.benjaminhill.stats.pso.PSOSwarm
 import info.benjaminhill.utils.concurrentMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
-import org.apache.commons.math4.linear.MatrixUtils
-import org.apache.commons.math4.linear.SingularValueDecomposition
+import org.apache.commons.geometry.euclidean.threed.Vector3D
+import org.apache.commons.geometry.euclidean.threed.rotation.AxisAngleSequence
+import org.apache.commons.geometry.euclidean.threed.rotation.AxisSequence
+import org.apache.commons.geometry.euclidean.threed.rotation.QuaternionRotation
 import java.io.File
-import javax.imageio.ImageIO
-import kotlin.math.roundToInt
-
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.sqrt
 
 private val DATA_FOLDER = File("DATA/").also { it.mkdirs() }
 private val INPUT_FOLDER = File(DATA_FOLDER, "inputs").also { require(it.canRead()) }
 private val RESULTS_FOLDER = File(DATA_FOLDER, "results").also { it.mkdirs() }
-private val RAW_POINTS_FOLDER = File(DATA_FOLDER, "raw_points_cache").also { it.mkdirs() }
 private val CLUSTER_FOLDER = File(DATA_FOLDER, "cluster_cache").also { it.mkdirs() }
+private val DECIMATED_FOLDER = File(DATA_FOLDER, "decimated_cache").also { it.mkdirs() }
+private const val DECIMATE_DIST = 0.0001
+private const val DECIMATE_MULT = 20 // How much less used for alignment (multiplier)
 
+val poses = mutableListOf<Pose>()
 
 fun main() = runBlocking(Dispatchers.Default) {
-
 
     println("0: Clean up from last run")
     RESULTS_FOLDER.walk().filter { it.extension.toLowerCase() == "asc" }.forEach { it.delete() }
 
-    val decimateDist = 0.00001
+    println("1: Load, cluster, and decimate point clouds")
 
-    val clouds = INPUT_FOLDER
-        .walk()
-        .filter { it.isFile && it.canRead() && listOf("png", "asc").contains(it.extension.toLowerCase()) }
-        .sortedBy { it.nameWithoutExtension }
-        .asFlow()
-        .concurrentMap { sourceFile ->
-            // STEP 1: Load sources.  (maybe images, maybe point clouds)
-            val rawPointsFile = File(RAW_POINTS_FOLDER, "${sourceFile.nameWithoutExtension}.asc")
-            if (!rawPointsFile.canRead()) {
-                when (sourceFile.extension.toLowerCase()) {
-                    "png" -> {
-                        println("${sourceFile.name} image to raw point cloud ${rawPointsFile.name}")
-                        val rawCloud = ImageIO.read(sourceFile).toPointCloud()
-                        rawCloud.saveToAsc(rawPointsFile)
-                    }
-                    "asc" -> {
-                        sourceFile.copyTo(rawPointsFile, true)
-                        println("Copied file to ${rawPointsFile.path}")
-                    }
-                }
-            }
-            rawPointsFile
+    // Split into two runs: from the middle to the last, and from the middle down to the first
+    // To have successive movement without "breaking" the chain.
+    val (midToFirst, midToLast) = loadClusters().let { clouds ->
+        clouds.chunked(ceil(clouds.size / 2.0).toInt()).let { (a, b) ->
+            Pair(a.reversed(), b)
         }
-        .concurrentMap { rawPointsFile ->
-            // STEP 2: Get the biggest cluster
-            val clusterFile = File(CLUSTER_FOLDER, "${rawPointsFile.nameWithoutExtension}.asc")
-            if (!clusterFile.canRead()) {
-                require(rawPointsFile.canRead() && rawPointsFile.length() > 0) { "Unable to generate cluster because missing readable non-empty ${rawPointsFile.path}" }
-                val rawCloud = loadPointCloudFromAsc(rawPointsFile)
-                println(" Creating clusters of ${clusterFile.name} (CPU intensive)")
-                val largestCluster = rawCloud.largestCluster()
-                largestCluster.saveToAsc(clusterFile)
-                println(" Created largest cluster file (${clusterFile.name} size:${rawCloud.size} down to ${largestCluster.size})")
-            } else {
-                println("Reusing previously rendered cluster.")
-            }
-            clusterFile
-        }
-        .concurrentMap { largestClusterFile ->
-            // STEP 3: Decimate as needed
-            loadPointCloudFromAsc(largestClusterFile).decimate(decimateDist)
-        }
-        .map { pointCloud ->
-            // Prep for alignment
-            Pair(identityMatrixOf(4), pointCloud)
-        }
-        .flowOn(Dispatchers.Default)
-        .toList()
-
-    println("Loaded ${clouds.size} clouds (from the initial point sets' biggest clusters)")
-
-    mutableListOf<SimplePoint3d>().also { allPoints ->
-        clouds.forEach { (transform, baseCloud) ->
-            allPoints.addAll(transform.transform(baseCloud))
-        }
-        allPoints.saveToAsc(File(RESULTS_FOLDER, "all_merged.asc"))
     }
 
-    var improvedClouds = clouds
+    println("2A: Aligning midToFirst (${midToFirst.size}).")
+    val sequenceMidDownToFirst = alignCombineTo(midToFirst.drop(0), midToFirst[0])
+    println("2B: Aligning midToLast (${midToLast.size}).")
+    val sequenceAll = alignCombineTo(midToLast, sequenceMidDownToFirst)
+    println("3: Saving aligned clouds.")
+    sequenceAll.saveToAsc(File(RESULTS_FOLDER, "all_merged_oriented.asc"))
+    println("4: Saving averaged points.")
+    val averagedPoints = sequenceAll.toAveragedZ(subdivisions = 150)
+    OrientedCloud.of(averagedPoints.values.toList()).saveToAsc(File(RESULTS_FOLDER, "all_merged_oriented_bucketed.asc"))
 
-    // STEP 5: Iterative alignment using SVD
-    repeat(10) { repeatNum ->
-        println("Alignment $repeatNum")
-        // Start aligning to previous cloud.  clouds[0] never moves.
-        val nextResult = clouds.zipWithNext { (cloudTransform0, cloudOriginal0), (cloudTransform1, cloudOriginal1) ->
-            // Current best transforms
-            val cloud0 = cloudTransform0.transform(cloudOriginal0)
-            val cloud1 = cloudTransform1.transform(cloudOriginal1)
-            // Improve on the alignment
-            val neighbors = cloud1.getNearestNeighbors(cloud0)
-            val betterTransform = alignPoints3D(neighbors.keys.toMutableList(), neighbors.values.toMutableList())
-            Pair(betterTransform, cloudOriginal1)
-        }.toMutableList()
-        nextResult.add(0, clouds.first())
-        improvedClouds = nextResult
+    poses.forEach { pose->
+        println("POSE: $pose")
     }
-
-    // Step 6: Export Point Cloud
-
-    val allOrientedPoints = mutableListOf<SimplePoint3d>()
-    improvedClouds.forEach { (transform, baseCloud) ->
-        allOrientedPoints.addAll(transform.transform(baseCloud))
-    }
-    allOrientedPoints.saveToAsc(File(RESULTS_FOLDER, "all_merged_oriented.asc"))
-    val averaged = allOrientedPoints.averageAlongZ(subdivisions = 150)
-    averaged.values.toList().saveToAsc(File(RESULTS_FOLDER, "all_merged_oriented_bucketed.asc"))
-
     // TODO Step 7: Export STL
 }
 
-
-/**
- * returns T, an n+1 by n+1 homogeneous transform points of dimension n
- * from list pointsA to list pointsB using method described in
- * "Least Squares Estimation of Transformation Parameters Between Two Point Patterns"
- * by Shinji Umeyana
- *
- * Algorithm overiew:
- *   a. Compute centroids of both lists, and center pointsA, pointsB at origin
- *   b. compute M\[n]\[n] = \Sum b_i * a_i^t
- *   c. given M = UDV^t via singular value decomposition, compute rotation
- *      via R = USV^t where S = diag(1,1 .. 1, det(U)*det(V));
- *   d. result computed by compounding differences in centroid and rotation matrix
- */
-
-private fun alignPoints3D(
-    pointsA: SimpleCloud3d,
-    pointsB: SimpleCloud3d
-): Transform {
-    require(pointsA.size == pointsB.size)
-    require(pointsA.isNotEmpty())
-
-    val cloudSize = pointsA.size
-    val dimensions: Int = pointsA[0].size
-    require(dimensions in 2..3) { "Dimension out of range: $dimensions" }
-
-    val aCent = pointsA.getCentroid()
-    val bCent = pointsB.getCentroid()
-
-    // Now compute M = \Sig (x'_b) (x'_a)^t
-    val M = squareMatrixOf(dimensions)
-
-    for (p in 0 until cloudSize) {
-        val xa = pointsA[p] - aCent
-        val xb = pointsB[p] - bCent
-        for (i in 0 until dimensions)
-            for (j in 0 until dimensions)
-                M[i][j] += xb[i] * xa[j]
+fun alignCombineTo(cloud:List<OrientedCloud>, destination:OrientedCloud):OrientedCloud {
+    val remainingClouds = cloud.toMutableList()
+    var result = destination
+    while (remainingClouds.isNotEmpty()) {
+        println("Aligning, ${remainingClouds.size} remaining.")
+        val nextCloud = remainingClouds[0]
+        val betterPose = alignPoints3D(result, nextCloud)
+        poses.add(betterPose)
+        // Re-pose everyone because of momentum, but only pop the one you just used for alignment.
+        for (i in remainingClouds.indices) {
+            remainingClouds[i] = remainingClouds[i].addTransform(betterPose)
+        }
+        result = OrientedCloud.of(result.oriented + remainingClouds.removeAt(0).oriented)
     }
-    // Scale by 1/n for numerical precision in next step
-    for (i in 0 until dimensions)
-        for (j in 0 until dimensions)
-            M[i][j] /= cloudSize.toDouble()
-
-    // compute SVD of M to get rotation
-    val svd = SingularValueDecomposition(MatrixUtils.createRealMatrix(M))
-
-    val U: SimpleMatrix = svd.u.data
-    val V: SimpleMatrix = svd.v.data
-    // compute sign, if -1, we need to swap the sign of S
-    val det = U.det() * V.det()
-    val S = identityMatrixOf(dimensions)
-    S[dimensions - 1][dimensions - 1] = det.roundToInt().toDouble() // swap sign if necessary
-    val R = matrixABCt(U, S, V)
-
-    // Compute T = matrixABC(O2B, Rmm, A2O); = |R t| where t = bCent  + R*(-aCent)
-    val t = bCent + matrixAB(R, aCent * -1.0)
-    val T = squareMatrixOf(dimensions + 1)
-    for (i in 0 until dimensions) System.arraycopy(R[i], 0, T[i], 0, dimensions)
-    for (i in 0 until dimensions) T[i][dimensions] = t[i]
-    T[dimensions][dimensions] = 1.0
-    return T
+    return result
 }
 
+
+fun alignPoints3D(fixed: OrientedCloud, moving: OrientedCloud): Pose {
+    // 45 degrees is a lot of movement between shots.
+    // Should be able to clamp down on the axis as well.  (don't tilt your head)
+    val rads = Math.toRadians(45.0)
+    // 50% is for if the cloud largest cluster isn't the same and needs to be scooted around.
+    val maxMovement = 0.5 * fixed.range.let {
+        val dist = it.first.subtract(it.second)
+        listOf(abs(dist.x), abs(dist.y), abs(dist.z)).max()!!
+    }
+    // XYZ rotation (in radians), and XYZ translation.  Use to build a Pose.
+    // TODO: First optimize X rotation, then fine-tune.
+    val parameterBounds = arrayOf(
+        (-1 * rads).rangeTo(rads),
+        (-1 * rads).rangeTo(rads),
+        (-1 * rads).rangeTo(rads),
+        (-1 * maxMovement).rangeTo(maxMovement),
+        (-1 * maxMovement).rangeTo(maxMovement),
+        (-1 * maxMovement).rangeTo(maxMovement),
+    )
+
+    fun DoubleArray.toPose() :Pose {
+        require(this.size==6)
+        val (rotX, rotY, rotZ) = take(3)
+        val (tx, ty, tz) = drop(3).take(3)
+        return Pose.createRotation(Vector3D.ZERO,
+            QuaternionRotation.fromAxisAngleSequence(
+            AxisAngleSequence.createAbsolute(AxisSequence.XYZ, rotX, rotY, rotZ)))
+            .premultiply(Pose.createTranslation(tx, ty, tz))
+    }
+
+    println("Parameter bounds: ${parameterBounds.joinToString { "${it.start.round()}..${it.endInclusive.round()}" }}.")
+    val lightweightMoving = moving.toDecimated(DECIMATE_DIST * DECIMATE_MULT)
+    println("Aligning decimated cloud size:${lightweightMoving.size} to previous cloud.")
+
+    val opt = OptimizableFunction(
+        parameterBounds = parameterBounds
+    ) { particle ->
+        OrientedCloud.of(lightweightMoving.oriented, particle.toPose())
+            .getNearestNeighbors(fixed).entries.sumByDouble { sqrt(it.key.distanceSq(it.value)) }
+    }
+
+    val pso = PSOSwarm(function = opt)
+    pso.run()
+    return pso.getBest().toPose()
+}
+
+private suspend fun loadClusters() = INPUT_FOLDER
+    .walk()
+    .filter { it.isFile && it.canRead() && listOf("asc", "xyz").contains(it.extension.toLowerCase()) }
+    .sortedBy { it.nameWithoutExtension }
+    .asFlow()
+    .concurrentMap { rawPointsFile ->
+        // STEP 2: Get the biggest cluster
+        val clusterFile = File(CLUSTER_FOLDER, "${rawPointsFile.nameWithoutExtension}.asc")
+        if (!clusterFile.canRead()) {
+            require(rawPointsFile.canRead() && rawPointsFile.length() > 0) { "Unable to generate cluster because missing readable non-empty ${rawPointsFile.path}" }
+            val rawCloud = rawPointsFile.loadCloudFromAsc()
+            println(" Creating clusters of ${clusterFile.name} (CPU intensive)")
+            val centeredCluster = rawCloud.toLargestCluster().toCentered()
+            centeredCluster.saveToAsc(clusterFile)
+            println(" Created largest cluster file (${clusterFile.name} size:${rawCloud.size} down to ${centeredCluster.size})")
+        }
+        clusterFile
+    }.concurrentMap { largestClusterFile ->
+        val decimatedFile = File(DECIMATED_FOLDER, "${largestClusterFile.nameWithoutExtension}.asc")
+        if (!decimatedFile.canRead()) {
+            val original = largestClusterFile.loadCloudFromAsc()
+            val decimated = original.toDecimated(DECIMATE_DIST)
+            decimated.saveToAsc(decimatedFile)
+            println(" Created decimated file (${decimatedFile.name} size:${original.size} down to ${decimated.size})")
+
+        }
+        decimatedFile
+    }
+    .concurrentMap { readyFile ->
+        readyFile.loadCloudFromAsc()
+    }
+    .flowOn(Dispatchers.Default)
+    .toList()
+
+fun Double.round(decimals: Int = 4): Double = "%.${decimals}f".format(this).toDouble()
