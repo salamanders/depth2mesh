@@ -212,12 +212,10 @@ $RECYCLE.BIN/
 /image01.ply
 /image01.stl
 /depth2mesh.iml
-/DATA/clusters/
-/DATA/allmerged_new.asc
-/DATA/allmerged.asc
-/DATA/bucketed.asc
 /DATA/cluster_cache/
 /.idea/
 /target/
-/DATA/raw_points_cache/
 /DATA/results/
+/archive/*
+/DATA/decimated_cache/
+/DATA/inputs/

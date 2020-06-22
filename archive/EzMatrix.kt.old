@@ -8,13 +8,13 @@ import java.math.RoundingMode
  * Good for Operators (like myMatrix[rowNum, colNum]++)
  * Rows, then column.
  */
-typealias SimpleMatrix = Array<SimpleVector>
+typealias EzMatrix = Array<EzVector>
 
-fun simpleMatrixOf(rows: Int, columns: Int = rows): SimpleMatrix = Array(rows) {
+fun ezMatrixOf(rows: Int, columns: Int = rows): EzMatrix = Array(rows) {
     vectorOf(columns)
 }
 
-fun squareMatrixOf(sz: Int) = simpleMatrixOf(sz)
+fun squareMatrixOf(sz: Int) = ezMatrixOf(sz)
 
 /**
  * Return the identity matrix of size 'sz'
@@ -23,24 +23,24 @@ fun identityMatrixOf(sz: Int) = squareMatrixOf(sz).also {
     for (i in 0 until sz) it[i][i] = 1.0
 }
 
-val SimpleMatrix.rowDimension: Int
+val EzMatrix.rowDimension: Int
     get() = size
 
-val SimpleMatrix.columnDimension: Int
+val EzMatrix.columnDimension: Int
     get() = this[0].size
 
-fun SimpleMatrix.deepCopy(): SimpleMatrix = Array(rowDimension) {
+fun EzMatrix.deepCopy(): EzMatrix = Array(rowDimension) {
     this[it].clone()
 }
 
-fun SimpleMatrix.swapRows(a: Int, b: Int) {
+fun EzMatrix.swapRows(a: Int, b: Int) {
     val t = this[a]
     this[a] = this[b]
     this[b] = t
 }
 
 
-fun SimpleMatrix.transpose(): SimpleMatrix = simpleMatrixOf(columnDimension, rowDimension).also { result ->
+fun EzMatrix.transpose(): EzMatrix = ezMatrixOf(columnDimension, rowDimension).also { result ->
     for (rowNum in 0 until rowDimension) {
         val row = this[rowNum]
         row.transposeAsColumn(result, rowNum)
@@ -52,22 +52,22 @@ fun SimpleMatrix.transpose(): SimpleMatrix = simpleMatrixOf(columnDimension, row
  * Create a new DenseVec containing a copy of the column. Changes to
  * the DenseVec do NOT affect the Matrix.
  */
-fun SimpleMatrix.copyColumn(sourceColNum: Int): SimpleVector = SimpleVector(rowDimension) { rowNum ->
+fun EzMatrix.copyColumn(sourceColNum: Int): EzVector = EzVector(rowDimension) { rowNum ->
     this[rowNum][sourceColNum]
 }
 
-operator fun SimpleMatrix.get(rowNum: Int, columnNum: Int) = this[rowNum][columnNum]
+operator fun EzMatrix.get(rowNum: Int, columnNum: Int) = this[rowNum][columnNum]
 
-operator fun SimpleMatrix.set(rowNum: Int, columnNum: Int, value: Double) {
+operator fun EzMatrix.set(rowNum: Int, columnNum: Int, value: Double) {
     this[rowNum][columnNum] = value
 }
 
-fun SimpleMatrix.isSquare() = isNotEmpty() && rowDimension == columnDimension
+fun EzMatrix.isSquare() = isNotEmpty() && rowDimension == columnDimension
 
 /**
  * compute determinant of small matrix.
  */
-fun SimpleMatrix.det(): Double {
+fun EzMatrix.det(): Double {
     require(isSquare())
     return when (size) {
         3 -> -this[0][2] * this[1][1] * this[2][0] + this[0][1] * this[1][2] * this[2][0] + this[0][2] * this[1][0] * this[2][1] - this[0][0] * this[1][2] * this[2][1] - this[0][1] * this[1][0] * this[2][2] + this[0][0] * this[1][1] * this[2][2]
@@ -87,24 +87,24 @@ fun SimpleMatrix.det(): Double {
 }
 
 fun matrixABCt(
-    A: SimpleMatrix,
-    B: SimpleMatrix,
-    C: SimpleMatrix
-): SimpleMatrix {
+    A: EzMatrix,
+    B: EzMatrix,
+    C: EzMatrix
+): EzMatrix {
     return matrixAB(A, matrixABt(B, C))
 }
 
 // X = A * B
 fun matrixAB(
-    A: SimpleMatrix,
-    B: SimpleMatrix
-): SimpleMatrix {
+    A: EzMatrix,
+    B: EzMatrix
+): EzMatrix {
     require(A.columnDimension == B.rowDimension)
 
     val bNumCols: Int = B.columnDimension
     val aNumCols: Int = A.columnDimension
 
-    val targetX = simpleMatrixOf(A.rowDimension, bNumCols)
+    val targetX = ezMatrixOf(A.rowDimension, bNumCols)
     for (aRowNum in A.indices) {
         for (bColNum in B.indices) {
             var acc = 0.0
@@ -120,9 +120,9 @@ fun matrixAB(
 /**
  * X = A * B
  */
-fun matrixAB(A: SimpleMatrix, B: SimpleVector): SimpleVector {
+fun matrixAB(A: EzMatrix, B: EzVector): EzVector {
     require(A.columnDimension == B.size)
-    val targetX = SimpleVector(A.rowDimension)
+    val targetX = EzVector(A.rowDimension)
     for (xRowNum in targetX.indices) {
         var acc = 0.0
         for (aColNum in A[0].indices) {
@@ -133,12 +133,15 @@ fun matrixAB(A: SimpleMatrix, B: SimpleVector): SimpleVector {
     return targetX
 }
 
-private fun matrixABt(
-    A: SimpleMatrix,
-    B: SimpleMatrix
-): SimpleMatrix {
+/**
+ * X = A * B^T
+ */
+fun matrixABt(
+    A: EzMatrix,
+    B: EzMatrix
+): EzMatrix {
     require(A.columnDimension == B.columnDimension)
-    val targetX = simpleMatrixOf(A.rowDimension, B.rowDimension)
+    val targetX = ezMatrixOf(A.rowDimension, B.rowDimension)
     for (aRowNum in A.indices) {
         for (bRowNum in B.indices) {
             var acc = 0.0
@@ -151,7 +154,7 @@ private fun matrixABt(
     return targetX
 }
 
-fun SimpleMatrix.pretty(): String = joinToString("\n") { row: SimpleVector ->
+fun EzMatrix.pretty(): String = joinToString("\n") { row: EzVector ->
     row.map { BigDecimal(it).setScale(3, RoundingMode.HALF_EVEN) }.joinToString("\t")
 }
 

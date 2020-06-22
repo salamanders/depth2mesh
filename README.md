@@ -10,6 +10,7 @@ From the Java code in [imagingbook ProcrustesFit](https://github.com/imagingbook
 
 Is it working?
 
+Better to use http://www.open3d.org/docs/release/tutorial/Advanced/multiway_registration.html
 
 
 ## Reading
