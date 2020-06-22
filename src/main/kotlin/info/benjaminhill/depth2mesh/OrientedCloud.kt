@@ -3,8 +3,8 @@ package info.benjaminhill.depth2mesh
 import ch.ethz.globis.phtree.PhTreeF
 import org.apache.commons.geometry.euclidean.threed.AffineTransformMatrix3D
 import org.apache.commons.geometry.euclidean.threed.Vector3D
-import org.apache.commons.math3.ml.clustering.Clusterable
-import org.apache.commons.math3.ml.clustering.DBSCANClusterer
+import org.apache.commons.math4.ml.clustering.Clusterable
+import org.apache.commons.math4.ml.clustering.DBSCANClusterer
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max

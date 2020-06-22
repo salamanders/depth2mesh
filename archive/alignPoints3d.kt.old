@@ -1,0 +1,42 @@
+/**
+ * http://nghiaho.com/?page_id=671
+ * For each point in cloudMoving find the closest point in cloudFixed
+ * Then find the best transform from cloudMoving to cloudFixed
+ */
+private fun alignPoints3D(
+    cloudFixed: EzCloud,
+    cloudMoving: EzCloud,
+) {
+    // Use the current orientation to get nearest neighbors from moving to fixed.
+    // Be sure to keep the ordering or nearest neighbor is meaningless!
+    val (neighborsMovingPoints, neighborsFixedPoints) = cloudMoving.getNearestNeighbors(cloudFixed)
+    val neighborsMoving = EzCloud(neighborsMovingPoints)
+    val neighborsFixed = EzCloud(neighborsFixedPoints)
+
+    // Once we have closest points, move both to the center and try for a better alignment
+    // TODO: This seems iffy.  Do you add the last translation/rotation to this one?
+    //neighborsMoving.setTranslateToCenter()
+    //neighborsFixed.setTranslateToCenter()
+
+    val a = neighborsMoving.toRealMatrix()
+    val b = neighborsFixed.toRealMatrix()
+    val H = a.multiply(b.transpose())
+
+    val svd = SingularValueDecomposition(H)
+    val r = svd.v.multiply(svd.u.transpose()).let { possibleR ->
+        if (EigenDecomposition(possibleR).determinant > 0) { // EigenDecomposition?
+            possibleR
+        } else {
+            // Reflection, need to flip.
+            val svd2 = SingularValueDecomposition(possibleR)
+            val v2 = svd2.v
+            v2.setColumn(2, v2.getColumn(2).map { it * -1.0}.toDoubleArray())
+            v2.multiply(svd2.u.transpose())
+        }
+    }
+
+
+    val t = SimpleMatrix(neighborsMoving.translate * -1.0).minus(r.mult(SimpleMatrix(neighborsFixed.translate * -1.0)))
+    neighborsMoving.rotate.set(r)
+    neighborsMoving.translate.set(t)
+}
